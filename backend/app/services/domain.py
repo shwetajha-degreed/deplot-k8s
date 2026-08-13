@@ -10,10 +10,10 @@ from app.models.analysis import (
     ValidationIssue,
     ValidationReport,
 )
-from app.models.deployment import DeploymentPlan, ZeropsConfig
+from app.models.deployment import DeploymentPlan, DeploymentPlanService, K8sConfig
 from app.services.base import BaseService
 from app.services.gemini import GeminiClient
-from app.services.zerops import repo_slug_from_url, hostnames_for_slug
+from app.services.k8s import hostnames_for_slug, repo_slug_from_url
 
 
 class AnalysisService(BaseService):
@@ -195,13 +195,15 @@ class AnalysisService(BaseService):
 class PlannerService(BaseService):
     name = "planner"
 
-    def __init__(self, project_core: str = "lightweight") -> None:
-        self._project_core = project_core
+    def __init__(self) -> None:
+        pass
 
     def build_plan(self, stack: StackDetection, graph: ArchitectureGraph) -> DeploymentPlan:
-        from app.services.zerops_pricing import build_deployment_plan
-
-        return build_deployment_plan(graph.nodes, project_core=self._project_core)
+        # TODO(k8s-port): replace with real AKS pricing tier logic.
+        services = [
+            DeploymentPlanService(name=n.id, type=n.type) for n in graph.nodes
+        ]
+        return DeploymentPlan(services=services, estimated_build_minutes=5)
 
 
 class YamlGeneratorService(BaseService):
@@ -211,31 +213,18 @@ class YamlGeneratorService(BaseService):
         self._templates_dir = templates_dir
         self._search_heavy = search_heavy
 
-    def generate(self, stack: StackDetection, repo_url: str | None) -> ZeropsConfig:
+    def generate(self, stack: StackDetection, repo_url: str | None) -> K8sConfig:
+        # TODO(k8s-port): emit real Deployment/Service/HTTPRoute manifests.
         slug = stack.repo_slug or repo_slug_from_url(repo_url)
         stack.repo_slug = slug
+        services = [
+            n for n in ["frontend", "api", "database", "cache", "search"]
+            if self._service_needed(n, stack)
+        ]
+        namespace = f"deploy-{slug}"
+        return K8sConfig(manifests=[], namespace=namespace, services=services)
 
-        if self._search_heavy:
-            import_yaml = self._load_fullstack(stack, repo_url, slug)
-            zerops_yaml = f"# Target stack for {slug}\n# See import_yaml for embedded web + api zeropsYaml"
-            services = ["frontend", "api", "database", "cache", "search"]
-        else:
-            template_name = "nextjs" if stack.framework == "nextjs" else "fastapi"
-            template_path = self._templates_dir / "zerops" / f"{template_name}.yaml.j2"
-            import_path = self._templates_dir / "zerops" / f"import_{template_name}.yaml.j2"
-            zerops_yaml = self._load_template(template_path, stack, repo_url, slug)
-            import_yaml = self._load_template(import_path, stack, repo_url, slug)
-            services = [
-                n for n in ["frontend", "api", "database", "cache", "search"] if self._service_needed(n, stack)
-            ]
-
-        return ZeropsConfig(
-            zerops_yaml=zerops_yaml,
-            import_yaml=import_yaml,
-            services=services,
-        )
-
-    def validate(self, stack: StackDetection, config: ZeropsConfig) -> ValidationReport:
+    def validate(self, stack: StackDetection, config: K8sConfig) -> ValidationReport:
         issues: list[ValidationIssue] = []
         required = {"DATABASE_URL"} if stack.database else set()
         missing = required - set(stack.detected_env_vars)
@@ -244,32 +233,23 @@ class YamlGeneratorService(BaseService):
                 ValidationIssue(
                     severity="warning",
                     code="MISSING_ENV",
-                    message=f"Environment variable {var} not detected in source — Zerops import will wire it automatically",
+                    message=f"Environment variable {var} not detected in source",
                     field=var,
                 )
             )
-        for svc in ("postgres", "cache", "search"):
-            if self._search_heavy and f"-{svc}" not in config.import_yaml:
-                issues.append(
-                    ValidationIssue(
-                        severity="error",
-                        code="MISSING_SERVICE",
-                        message=f"Import YAML missing managed service: {svc}",
-                    )
-                )
-        if "readinessCheck" not in config.import_yaml and "readiness" not in config.zerops_yaml:
+        if not config.manifests:
             issues.append(
                 ValidationIssue(
                     severity="warning",
-                    code="NO_READINESS",
-                    message="Verify readiness checks on runtime services",
+                    code="NO_MANIFESTS",
+                    message="No K8s manifests generated yet — port yaml_generator to K8s",
                 )
             )
         errors = [i for i in issues if i.severity == "error"]
         return ValidationReport(passed=len(errors) == 0, issues=issues)
 
     def _load_fullstack(self, stack: StackDetection, repo_url: str | None, slug: str) -> str:
-        path = self._templates_dir / "zerops" / "import_fullstack.yaml.j2"
+        path = self._templates_dir / "k8s" / "import_fullstack.yaml.j2"
         fe = stack.monorepo_frontend_path or "."
         be = stack.monorepo_backend_path or "."
         fe_prefix = f"{fe}/" if fe != "." else ""
@@ -330,7 +310,7 @@ class YamlGeneratorService(BaseService):
                 .replace("{{FRAMEWORK}}", stack.framework or "app")
                 .replace("{{SLUG}}", slug)
             )
-        return f"# Template not found: {path.name}\nzerops: []\n"
+        return f"# Template not found: {path.name}\nmanifests: []\n"
 
     @staticmethod
     def _service_needed(name: str, stack: StackDetection) -> bool:

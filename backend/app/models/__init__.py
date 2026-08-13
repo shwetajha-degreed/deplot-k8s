@@ -1,6 +1,6 @@
 from app.models.aiops import AIOpsReport, Diagnosis, Incident, Remediation
 from app.models.analysis import AnalysisSession, ArchitectureGraph, StackDetection, ValidationReport
-from app.models.deployment import Deployment, DeploymentPlan, DeploymentScore, ZeropsConfig
+from app.models.deployment import Deployment, DeploymentPlan, DeploymentScore, K8sConfig
 from app.models.observability import ObservabilitySnapshot, ServiceHealth, TimelineEvent
 
 __all__ = [
@@ -18,5 +18,5 @@ __all__ = [
     "StackDetection",
     "TimelineEvent",
     "ValidationReport",
-    "ZeropsConfig",
+    "K8sConfig",
 ]

@@ -110,10 +110,9 @@ class DeploymentScoreService(BaseService):
             score -= errors * 1.0
             score -= warnings * 0.35
         if deployment.config:
-            import_yaml = deployment.config.import_yaml
-            if "envSecrets" not in import_yaml and "postgresql" in import_yaml.lower():
-                score -= 0.4
-            if "readinessCheck" in import_yaml or "readiness" in import_yaml:
+            # TODO(k8s-port): inspect manifests for Secret/env wiring and readiness probes.
+            manifest_text = str(deployment.config.manifests).lower()
+            if "readinessprobe" in manifest_text or "readiness" in manifest_text:
                 score += 0.3
         return _clamp(score)
 
@@ -266,11 +265,11 @@ class DeploymentScoreService(BaseService):
 
         for h in observability.health:
             if h.status == "critical":
-                recs.append(f"Critical: {h.service} ({h.hostname or 'service'}) — check Zerops pipeline")
+                recs.append(f"Critical: {h.service} ({h.hostname or 'service'}) — check K8s rollout")
             elif h.status == "degraded":
                 recs.append(f"Degraded: {h.service} — review logs and readiness probes")
             elif h.status == "unknown" and h.hostname:
-                recs.append(f"Confirm {h.hostname} finished provisioning in Zerops")
+                recs.append(f"Confirm {h.hostname} finished provisioning on K8s")
 
         if deployment.status != DeploymentStatus.SUCCEEDED and not open_incidents:
             recs.append("Wait for deployment pipeline to complete before production traffic")

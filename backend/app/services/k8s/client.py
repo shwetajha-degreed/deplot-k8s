@@ -1,4 +1,4 @@
-"""Kubernetes adapter that mirrors the shape of the retired ZeropsService."""
+"""Kubernetes adapter that mirrors the shape of the retired service."""
 
 from __future__ import annotations
 

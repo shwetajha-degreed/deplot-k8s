@@ -1,5 +1,6 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, computed_field
@@ -24,9 +25,9 @@ class DeploymentStatus(StrEnum):
     FAILED = "failed"
 
 
-class ZeropsConfig(BaseModel):
-    zerops_yaml: str
-    import_yaml: str
+class K8sConfig(BaseModel):
+    manifests: list[dict[str, Any]] = Field(default_factory=list)
+    namespace: str = ""
     services: list[str] = Field(default_factory=list)
 
 
@@ -45,7 +46,7 @@ class DeploymentPlan(BaseModel):
     estimated_cost_usd_month: float = 0.0
     estimated_build_minutes: int = 5
     project_core_usd_month: float = 0.0
-    pricing_source: str = "zerops_official_rates"
+    pricing_source: str = "k8s_estimate"
     pricing_note: str | None = None
 
 
@@ -93,7 +94,7 @@ class DeploymentStatusResponse(BaseModel):
 class Deployment(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     session_id: UUID
-    zerops_project_id: str | None = None
+    namespace: str | None = None
     live_url: str | None = None
     demo_mode: bool = False
     repo_slug: str | None = None
@@ -101,13 +102,13 @@ class Deployment(BaseModel):
     service_urls: dict[str, str] = Field(default_factory=dict)
     routing_checklist: list[str] = Field(default_factory=list)
     pipeline_state: str | None = None
-    zerops_message: str | None = None
+    k8s_message: str | None = None
     failure_phase: str | None = None
     failure_summary: str | None = None
     stage: DeploymentStage = DeploymentStage.QUEUED
     status: DeploymentStatus = DeploymentStatus.PENDING
     plan: DeploymentPlan | None = None
-    config: ZeropsConfig | None = None
+    config: K8sConfig | None = None
     score: DeploymentScore | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

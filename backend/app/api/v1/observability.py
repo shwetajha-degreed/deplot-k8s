@@ -25,13 +25,13 @@ async def get_logs(deployment_id: UUID, tail: int = 500):
     from app.services.store import deployment_store
 
     deployment = deployment_store.get(deployment_id)
-    zerops = get_service("zerops")
+    k8s = get_service("kubernetes")
     hostname = str(deployment_id)
-    project_id = None
+    namespace = ""
     if deployment and deployment.service_hostnames:
         hostname = deployment.service_hostnames.get("api") or hostname
-        project_id = deployment.zerops_project_id
-    lines = await zerops.fetch_logs(hostname, tail=tail, project_id=project_id)
+        namespace = deployment.namespace or ""
+    lines = await k8s.fetch_logs(namespace, hostname, tail_lines=tail) if namespace else []
     return {"deployment_id": str(deployment_id), "lines": lines}
 
 

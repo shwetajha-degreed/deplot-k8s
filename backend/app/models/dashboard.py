@@ -22,7 +22,7 @@ class DashboardSummary(BaseModel):
     active_deployments: int = 0
     success_rate_percent: float = 0.0
     environments: int = 0
-    zerops_services: int = 0
+    k8s_services: int = 0
     services_healthy: str = "0/0"
     services_healthy_count: int = 0
     services_total: int = 0

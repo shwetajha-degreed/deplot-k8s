@@ -9,7 +9,7 @@ from app.services.base import BaseService
 from app.services.gemini import GeminiClient
 from app.services.store import deployment_store, incident_store
 from app.services.timeline import list_ops_timeline, record_ops_event
-from app.services.zerops import ZeropsService, hostnames_for_slug
+from app.services.k8s import KubernetesService, hostnames_for_slug
 
 
 class ObservabilityService(BaseService):
@@ -17,7 +17,7 @@ class ObservabilityService(BaseService):
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._zerops = ZeropsService(settings)
+        self._k8s = KubernetesService(settings)
 
     async def get_snapshot(self, deployment_id: UUID) -> ObservabilitySnapshot:
         deployment = deployment_store.get(deployment_id)
@@ -39,7 +39,7 @@ class ObservabilityService(BaseService):
             metrics=[],
             health=[],
             timeline=list_ops_timeline(deployment_id) if deployment else [],
-            log_summary="No Zerops service hostnames yet — complete a live deploy first.",
+            log_summary="No K8s deployments yet — complete a live deploy first.",
             checked_at=datetime.utcnow(),
         )
 
@@ -47,7 +47,7 @@ class ObservabilityService(BaseService):
         metrics: list[ServiceMetrics] = []
         health: list[ServiceHealth] = []
         log_lines: list[str] = []
-        project_id = deployment.zerops_project_id
+        namespace = deployment.namespace or ""
 
         role_map = {
             "frontend": deployment.service_hostnames.get("frontend", ""),
@@ -62,7 +62,7 @@ class ObservabilityService(BaseService):
                 continue
 
             role_logs: list[str] = []
-            raw_metrics = await self._zerops.fetch_metrics(hostname, project_id=project_id)
+            raw_metrics = await self._k8s.fetch_metrics(namespace, hostname) if namespace else []
             cpu, mem = self._parse_metrics(raw_metrics)
             if cpu is not None or mem is not None:
                 metrics.append(
@@ -72,15 +72,15 @@ class ObservabilityService(BaseService):
                         memory_mb=mem if mem is not None else 0.0,
                     )
                 )
-            if role in ("frontend", "api"):
-                role_logs = await self._zerops.fetch_logs(hostname, tail=50, project_id=project_id)
+            if role in ("frontend", "api") and namespace:
+                role_logs = await self._k8s.fetch_logs(namespace, hostname, tail_lines=50)
                 log_lines.extend(role_logs)
 
             health.append(
                 await self._probe_service_health(
                     role=role,
                     hostname=hostname,
-                    project_id=project_id,
+                    namespace=namespace,
                     incidents=incidents,
                     logs=role_logs,
                     deployment_status=deployment.status,
@@ -105,7 +105,7 @@ class ObservabilityService(BaseService):
         *,
         role: str,
         hostname: str,
-        project_id: str | None,
+        namespace: str,
         incidents: list,
         logs: list[str],
         deployment_status: DeploymentStatus,
@@ -123,8 +123,8 @@ class ObservabilityService(BaseService):
         )
         has_log_errors = any(token in log_text for token in error_signals)
 
-        if role in ("frontend", "api"):
-            pipe = await self._zerops.get_pipeline_status(hostname, project_id)
+        if role in ("frontend", "api") and namespace:
+            pipe = await self._k8s.get_pipeline_status(namespace, hostname)
             stage = pipe.get("stage", DeploymentStage.BUILDING)
             pipeline_state = str(pipe.get("state", "unknown"))
 
@@ -146,14 +146,9 @@ class ObservabilityService(BaseService):
             else:
                 status, ready = "unknown", False
         else:
-            info = await self._zerops.get_service_info(hostname, project_id)
-            pipeline_state = str(info.get("state", "unknown"))
-            if not info.get("found"):
-                status, ready = "unknown", False
-            elif pipeline_state in ("failed", "error", "stopped"):
-                status, ready = "critical", False
-            else:
-                status, ready = "healthy", True
+            # TODO(k8s-port): probe managed-service health (StatefulSet / operator status).
+            pipeline_state = "unknown"
+            status, ready = "unknown", False
 
         if deployment_status == DeploymentStatus.FAILED and role in ("frontend", "api"):
             status, ready = "critical", False
@@ -185,7 +180,7 @@ class ObservabilityService(BaseService):
         if not lines:
             if has_open and incidents and incidents[0].diagnosis:
                 return incidents[0].diagnosis.log_summary or incidents[0].title
-            return "No recent log lines from Zerops."
+            return "No recent log lines from K8s."
         tail = " ".join(lines[-5:])
         if len(tail) > 400:
             tail = tail[:400] + "..."
@@ -307,19 +302,19 @@ class AIOpsService(BaseService):
         reason="DATABASE_URL environment variable is missing",
         impact="Backend cannot connect to PostgreSQL — API readiness check fails",
         confidence=0.96,
-        suggested_fix="Set DATABASE_URL in Zerops api service environment variables",
+        suggested_fix="Set DATABASE_URL in api Deployment env",
         log_summary="Error: P1001 — Can't reach database server at postgres:5432",
     )
 
     DEMO_RUNBOOK = [
-        "Open Zerops project → api service → Environment variables",
-        "Add DATABASE_URL referencing the postgres service (${postgres_hostname})",
-        "Redeploy the api service and wait for readiness check to pass",
+        "Edit the api Deployment → containers[0].env",
+        "Add DATABASE_URL pointing to the postgres Service",
+        "kubectl rollout restart deploy/api and wait for readiness",
     ]
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        self._zerops = ZeropsService(settings)
+        self._k8s = KubernetesService(settings)
         self._gemini = GeminiClient(settings)
 
     async def create_incident(
@@ -400,16 +395,16 @@ class AIOpsService(BaseService):
         else:
             incident.diagnosis = Diagnosis(
                 root_cause=title,
-                reason="Zerops import or pipeline failed",
-                impact="Target services may not be running",
+                reason="K8s apply or rollout failed",
+                impact="Target Deployments may not be running",
                 confidence=0.75,
-                suggested_fix="Check Zerops GUI pipeline logs and enable public routing",
+                suggested_fix="Check pod events / logs and re-apply manifests",
                 log_summary="\n".join(logs[-3:]) if logs else None,
             )
             incident.runbook = [
-                "Open Zerops project and inspect pipeline for failed service",
-                "Enable subdomain access on web and api routing pages",
-                "Redeploy after fixing build or env configuration",
+                "kubectl describe deploy/<name> -n <ns> to inspect events",
+                "Verify HTTPRoute + Gateway wiring for the app",
+                "Re-apply manifests after fixing build or env configuration",
             ]
         incident.status = IncidentStatus.DIAGNOSED
         incident_store.save(incident)
@@ -451,7 +446,7 @@ class AIOpsService(BaseService):
         incident.remediation_steps.append(RemediationStep(name=name, status=status, message=message))
         incident_store.save(incident)
 
-    def _resolve_env_for_zerops(self, env_changes: dict[str, str], deployment) -> dict[str, str]:
+    def _resolve_env_for_k8s(self, env_changes: dict[str, str], deployment) -> dict[str, str]:
         slug = deployment.repo_slug or "app"
         hostnames = deployment.service_hostnames or hostnames_for_slug(slug)
         postgres = hostnames.get("database", f"{slug}-postgres")
@@ -533,8 +528,8 @@ class AIOpsService(BaseService):
         slug = deployment.repo_slug or "app"
         affected = incident.affected_service or "api"
         hostname = deployment.service_hostnames.get(affected) or f"{slug}-{affected}"
-        project_id = deployment.zerops_project_id
-        env_changes = self._resolve_env_for_zerops(remediation.env_changes, deployment)
+        namespace = deployment.namespace or self._settings.deplot_namespace
+        env_changes = self._resolve_env_for_k8s(remediation.env_changes, deployment)
 
         self._append_step(
             incident,
@@ -542,11 +537,10 @@ class AIOpsService(BaseService):
             "running",
             f"Patching {len(env_changes)} variable(s) on {hostname}",
         )
-        apply_result = await self._zerops.apply_env_changes(
+        apply_result = await self._k8s.apply_env_changes(
             hostname,
+            namespace,
             env_changes,
-            project_id,
-            trigger_redeploy=True,
         )
         if not apply_result.get("ok"):
             self._append_step(
@@ -575,7 +569,7 @@ class AIOpsService(BaseService):
         )
         self._append_step(incident, "Redeploy api", "running", f"Waiting for {hostname} pipeline")
 
-        wait_result = await self._zerops.wait_for_pipeline(hostname, project_id)
+        wait_result = await self._k8s.wait_for_pipeline(namespace, hostname)
         if wait_result.get("ok"):
             self._append_step(incident, "Redeploy api", "succeeded", str(wait_result.get("state", "ready")))
             self._append_step(incident, "Readiness check", "succeeded", "Pipeline complete")
@@ -590,7 +584,7 @@ class AIOpsService(BaseService):
                     incident.deployment_id,
                     source="aiops",
                     event_type="remediation_succeeded",
-                    message="Env patched on Zerops, redeployed, readiness passing",
+                    message="Env patched on K8s, rolled out, readiness passing",
                     service=incident.affected_service,
                 )
             return resolved

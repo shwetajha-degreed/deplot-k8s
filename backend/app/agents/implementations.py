@@ -2,7 +2,7 @@ from app.agents.base import AgentContext, BaseAgent
 from app.agents.orchestrator import register_agent
 from app.models.aiops import AIOpsReport, Diagnosis, Remediation
 from app.models.analysis import ArchitectureGraph, StackDetection, ValidationReport
-from app.models.deployment import DeploymentPlan, DeploymentScore, ZeropsConfig
+from app.models.deployment import DeploymentPlan, DeploymentScore, K8sConfig
 from app.services.domain import AnalysisService, PlannerService, YamlGeneratorService
 from app.services.gemini import GeminiClient
 @register_agent
@@ -32,11 +32,11 @@ class InfrastructurePlannerAgent(BaseAgent[ArchitectureGraph]):
 
 
 @register_agent
-class YamlGeneratorAgent(BaseAgent[ZeropsConfig]):
+class YamlGeneratorAgent(BaseAgent[K8sConfig]):
     name = "yaml_generator"
     prompt_file = "yaml_generator.md"
 
-    async def run(self, context: AgentContext) -> ZeropsConfig:
+    async def run(self, context: AgentContext) -> K8sConfig:
         stack: StackDetection = context.payload["stack"]
         repo_url = context.payload.get("repo_url")
         service = YamlGeneratorService(self._settings.templates_dir, self._settings.search_heavy_stack)
@@ -50,7 +50,7 @@ class DeploymentValidatorAgent(BaseAgent[ValidationReport]):
 
     async def run(self, context: AgentContext) -> ValidationReport:
         stack: StackDetection = context.payload["stack"]
-        config: ZeropsConfig = context.payload["config"]
+        config: K8sConfig = context.payload["config"]
         service = YamlGeneratorService(self._settings.templates_dir, self._settings.search_heavy_stack)
         return service.validate(stack, config)
 
@@ -95,18 +95,18 @@ class AIOpsAnalystAgent(BaseAgent[AIOpsReport]):
             diagnosis=Diagnosis(
                 root_cause="AI diagnosis unavailable",
                 reason="Gemini did not return a structured report (quota, network, or empty response)",
-                impact="Manual inspection of Zerops logs is required before applying a fix",
+                impact="Manual inspection of K8s pod logs is required before applying a fix",
                 confidence=0.0,
-                suggested_fix="Open Zerops GUI → failed service → Logs, then retry Diagnose",
+                suggested_fix="kubectl logs deploy/<name> -n <ns>, then retry Diagnose",
                 log_summary=("\n".join(logs[-3:]) if logs else "No logs available"),
             ),
             runbook=[
-                "Open the deploy sandbox project in Zerops GUI",
-                "Inspect pipeline and runtime logs for the failing service",
+                "kubectl describe / logs on the failing Deployment",
+                "Inspect pod events for image pull, crash, or readiness failures",
                 "Retry Diagnose once Gemini quota is available",
             ],
             remediation=Remediation(
-                description="Inspect Zerops logs and apply the suggested env or config fix manually",
+                description="Inspect K8s logs and apply the suggested env or config fix manually",
                 env_changes={},
             ),
             observability_gaps=["Enable readiness checks on all runtime services"],

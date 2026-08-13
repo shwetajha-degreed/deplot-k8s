@@ -8,18 +8,18 @@ from collections.abc import AsyncIterator
 from uuid import UUID
 
 from app.models.deployment import DeploymentStatus
+from app.services.k8s import KubernetesService
 from app.services.store import deployment_store
-from app.services.zerops import ZeropsService
 
 DEMO_DEPLOY_LOGS = [
     "[build] Resolving monorepo packages...",
     "[build] npm ci — frontend workspace",
     "[build] pip install — backend workspace",
     "[build] Compiling Next.js production bundle",
-    "[upload] Uploading artifacts to Zerops",
-    "[runtime] Creating python@3.12 runtime for demo-api",
-    "[runtime] Provisioning demo-postgres (postgresql@16)",
-    "[runtime] Provisioning demo-cache (valkey@7)",
+    "[upload] Pushing image to ACR",
+    "[runtime] Rolling out python@3.12 deployment demo-api",
+    "[runtime] Provisioning demo-postgres",
+    "[runtime] Provisioning demo-cache",
     "[readiness] Running HTTP probe on /api/v1/health",
     "[error] Prisma P1001 — Can't reach database server",
     "[readiness] API readiness check failed",
@@ -28,7 +28,7 @@ DEMO_DEPLOY_LOGS = [
 
 async def stream_deployment_sse(
     deployment_id: UUID,
-    zerops: ZeropsService,
+    k8s: KubernetesService,
     *,
     max_ticks: int = 90,
     poll_seconds: float = 2.0,
@@ -59,16 +59,14 @@ async def stream_deployment_sse(
             poll = 0.6
         else:
             poll = poll_seconds
-            import_msg = deployment.zerops_message
+            import_msg = deployment.k8s_message
             if tick == 0 and import_msg:
                 new_lines = [import_msg[:500], *new_lines]
-            elif deployment.status == DeploymentStatus.FAILED and deployment.failure_phase == "import":
-                api_host = ""
-            else:
-                api_host = deployment.service_hostnames.get("api", "")
-            if api_host:
-                all_logs = await zerops.fetch_logs(
-                    api_host, tail=200, project_id=deployment.zerops_project_id
+            api_deployment = deployment.service_hostnames.get("api", "")
+            namespace = deployment.namespace or ""
+            if api_deployment and namespace:
+                all_logs = await k8s.fetch_logs(
+                    namespace, api_deployment, tail_lines=200
                 )
                 if seen_logs < len(all_logs):
                     new_lines = [*new_lines, *all_logs[seen_logs:]]

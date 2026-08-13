@@ -13,7 +13,7 @@ def _combined_error_text(*parts: str | None) -> str:
 
 
 def parse_log_error(log_line: str) -> str | None:
-    """Extract a human message from JSON log lines (e.g. Zerops notFound)."""
+    """Extract a human message from JSON log lines."""
     text = log_line.strip()
     if not text:
         return None
@@ -34,7 +34,7 @@ def parse_log_error(log_line: str) -> str | None:
 
 
 def classify_import_failure(result: dict) -> tuple[str, str]:
-    """Return (failure_phase, failure_summary) for a failed zcli import."""
+    """Return (failure_phase, failure_summary) for a failed manifest apply."""
     stderr = str(result.get("stderr") or "")
     stdout = str(result.get("stdout") or "")
     error = str(result.get("error") or "")
@@ -43,18 +43,18 @@ def classify_import_failure(result: dict) -> tuple[str, str]:
     if "not found" in combined or "notfound" in combined:
         return (
             "import",
-            "Zerops returned Not Found during service import. Confirm DEPLOY_PROJECT_ID "
+            "K8s returned Not Found during service import. Confirm DEPLOY_PROJECT_ID "
             "points to an existing project and your API token can access it.",
         )
     if "unauthorized" in combined or "forbidden" in combined or "401" in combined:
         return (
             "import",
-            "Zerops rejected the import — verify DEPLOT_API_TOKEN / ZEROPS_API_TOKEN is valid.",
+            "K8s rejected the import — verify workload identity has RBAC on the target namespace.",
         )
-    if "zcli not found" in combined:
+    if "kubeconfig" in combined:
         return (
             "import",
-            "zcli is not installed on the API host — install zcli or run Deplot backend locally.",
+            "kubeconfig not available — configure workload identity or KUBECONFIG_PATH.",
         )
     if "deploy_project_id" in combined or "not configured" in combined:
         return (
@@ -63,7 +63,7 @@ def classify_import_failure(result: dict) -> tuple[str, str]:
         )
 
     parsed = parse_log_error(stderr) or parse_log_error(stdout) or error
-    summary = parsed or "Zerops service import failed — inspect stderr in the build log."
+    summary = parsed or "K8s service import failed — inspect stderr in the build log."
     return "import", summary[:1000]
 
 
@@ -83,14 +83,14 @@ def classify_pipeline_failure(stage: DeploymentStage, logs: list[str]) -> tuple[
     if stage in (DeploymentStage.PROVISIONING_DB, DeploymentStage.CREATING_RUNTIME):
         return (
             "provisioning",
-            "Managed services or runtime containers failed to provision on Zerops.",
+            "Managed services or runtime containers failed to provision on K8s.",
         )
     if "prisma" in log_text or "migration" in log_text or "database" in log_text:
         return (
             "build",
             "Build or startup failed — likely database connection or migration issue.",
         )
-    return "build", "Zerops build pipeline failed — review build logs for the failing service."
+    return "build", "K8s build pipeline failed — review build logs for the failing service."
 
 
 def stage_to_ui_index(stage: DeploymentStage, *, failure_phase: str | None = None) -> int:
@@ -113,7 +113,7 @@ def stage_to_ui_index(stage: DeploymentStage, *, failure_phase: str | None = Non
 
 def retry_phase_label(phase: str) -> str:
     labels = {
-        "import": "Re-run Zerops service import",
+        "import": "Re-run K8s manifest apply",
         "build": "Retry build pipeline",
         "provisioning": "Retry provisioning",
         "readiness": "Retry readiness check",

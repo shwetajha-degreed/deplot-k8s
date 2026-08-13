@@ -52,13 +52,11 @@ class DashboardService(BaseService):
         succeeded = sum(1 for d in deployments if d.status == DeploymentStatus.SUCCEEDED)
         success_rate = round((succeeded / total) * 100, 1) if total else 0.0
 
-        project_ids = {d.zerops_project_id for d in deployments if d.zerops_project_id}
+        namespaces = {d.namespace for d in deployments if d.namespace}
         settings = get_settings()
-        if settings.zerops_project_id:
-            project_ids.add(settings.zerops_project_id)
-        if settings.zerops_deploy_project_id:
-            project_ids.add(settings.zerops_deploy_project_id)
-        environments = len(project_ids)
+        if settings.deplot_namespace:
+            namespaces.add(settings.deplot_namespace)
+        environments = len(namespaces)
 
         service_names: set[str] = set()
         for d in deployments:
@@ -66,14 +64,14 @@ class DashboardService(BaseService):
                 service_names.update(v for v in d.service_hostnames.values() if v)
             elif d.config and d.config.services:
                 service_names.update(d.config.services)
-        zerops_services = len(service_names)
+        k8s_services = len(service_names)
 
         healthy_count = sum(
             1
             for d in deployments
             if d.status == DeploymentStatus.SUCCEEDED and d.stage.value == "complete"
         )
-        services_total = zerops_services
+        services_total = k8s_services
         services_healthy_count = min(healthy_count, services_total) if services_total else 0
 
         open_incidents = sum(1 for i in incidents if i.status != IncidentStatus.RESOLVED)
@@ -106,11 +104,7 @@ class DashboardService(BaseService):
             if not d.live_url:
                 continue
             name = d.repo_slug or f"deploy-{str(d.id)[:8]}"
-            env = "sandbox" if (
-                d.zerops_project_id
-                and settings.zerops_deploy_project_id
-                and d.zerops_project_id == settings.zerops_deploy_project_id
-            ) else "platform"
+            env = "platform" if d.namespace == settings.deplot_namespace else "sandbox"
             live_apps.append(LiveApp(name=name, url=d.live_url, environment=env))
 
         last_deploy = max((d.updated_at for d in deployments), default=None)
@@ -170,7 +164,7 @@ class DashboardService(BaseService):
             active_deployments=active,
             success_rate_percent=success_rate,
             environments=environments,
-            zerops_services=zerops_services,
+            k8s_services=k8s_services,
             services_healthy=f"{services_healthy_count}/{services_total}",
             services_healthy_count=services_healthy_count,
             services_total=services_total,

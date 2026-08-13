@@ -37,7 +37,6 @@ class GitHubService(BaseService):
             "requirements.txt",
             "pyproject.toml",
             "Dockerfile",
-            "zerops.yaml",
             "prisma/schema.prisma",
             "next.config",
         )

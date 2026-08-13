@@ -91,7 +91,7 @@ Scores (0-10): security={security}, performance={performance}, scalability={scal
 Known gaps:
 {chr(10).join(f"- {g}" for g in gaps[:8])}
 
-Return JSON: {{ "recommendations": ["...", "..."] }} with 2-4 short, actionable Zerops-specific items. Do not repeat gaps verbatim."""
+Return JSON: {{ "recommendations": ["...", "..."] }} with 2-4 short, actionable K8s-specific items. Do not repeat gaps verbatim."""
 
         try:
             response = await model.generate_content_async(prompt)

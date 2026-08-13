@@ -14,9 +14,9 @@ from app.models.analysis import (
     SessionStatus,
     ValidationReport,
 )
-from app.models.deployment import DeploymentPlan, ZeropsConfig
+from app.models.deployment import DeploymentPlan, K8sConfig
+from app.services.k8s import repo_slug_from_url
 from app.services.store import session_store
-from app.services.zerops import repo_slug_from_url
 
 router = APIRouter()
 
@@ -84,7 +84,7 @@ async def generate_architecture(body: SessionIdBody):
     return graph
 
 
-@router.post("/generate-yaml", response_model=ZeropsConfig)
+@router.post("/generate-yaml", response_model=K8sConfig)
 async def generate_yaml(body: SessionIdBody):
     session = session_store.get(body.session_id)
     if not session or not session.stack:

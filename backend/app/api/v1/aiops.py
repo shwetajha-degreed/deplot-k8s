@@ -34,17 +34,17 @@ async def diagnose_incident(incident_id: UUID):
         raise HTTPException(status_code=404, detail="Incident not found")
 
     deployment = deployment_store.get(incident.deployment_id)
-    zerops = get_service("zerops")
+    k8s = get_service("kubernetes")
     logs: list[str] = []
     yaml_excerpt = ""
     stack_summary = ""
     if deployment:
         slug = deployment.repo_slug or "app"
-        logs = await zerops.fetch_logs(
-            f"{slug}-api", tail=100, project_id=deployment.zerops_project_id
-        )
+        namespace = deployment.namespace or ""
+        if namespace:
+            logs = await k8s.fetch_logs(namespace, f"{slug}-api", tail_lines=100)
         if deployment.config:
-            yaml_excerpt = deployment.config.import_yaml[:3000]
+            yaml_excerpt = str(deployment.config.manifests)[:3000]
         session = session_store.get(deployment.session_id)
         if session and session.stack:
             stack_summary = f"framework={session.stack.framework}, search={session.stack.search}"
