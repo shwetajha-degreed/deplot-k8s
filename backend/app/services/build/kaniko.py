@@ -227,13 +227,22 @@ class KanikoBuildService(BaseService):
 
         # ACR name derives from the FQDN (`dgscucorecr01.azurecr.io` -> `dgscucorecr01`).
         acr_name = self._settings.acr_registry.split(".")[0]
+        acr_server = self._settings.acr_registry
+        # az acr login without --expose-token invokes docker login; the az-cli
+        # image has no docker daemon. --expose-token returns the token as JSON
+        # so we can write /kaniko/.docker/config.json directly. Username
+        # 00000000-0000-0000-0000-000000000000 is the ACR sentinel for
+        # token-based auth.
         acr_auth_cmd = (
             "set -eu; "
             'az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" '
             "--service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID > /dev/null; "
-            f"az acr login --name {shlex.quote(acr_name)}; "
+            f"TOKEN=$(az acr login --name {shlex.quote(acr_name)} --expose-token "
+            "--output tsv --query accessToken); "
             "mkdir -p /kaniko/.docker; "
-            "cp ~/.docker/config.json /kaniko/.docker/config.json"
+            f"AUTH=$(printf %s '00000000-0000-0000-0000-000000000000:'\"$TOKEN\" | base64 -w0); "
+            f'printf \'{{"auths":{{"{acr_server}":{{"auth":"%s"}}}}}}\' "$AUTH" '
+            "> /kaniko/.docker/config.json"
         )
 
         return {
