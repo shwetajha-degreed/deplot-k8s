@@ -24,6 +24,7 @@ from app.services.k8s.client import KubernetesService
 
 _KANIKO_IMAGE = "gcr.io/kaniko-project/executor:latest"
 _GIT_IMAGE = "alpine/git:latest"
+_AZ_CLI_IMAGE = "mcr.microsoft.com/azure-cli:latest"
 _SA_NAME = "kaniko-builder"
 
 
@@ -224,6 +225,17 @@ class KanikoBuildService(BaseService):
             f"echo {shlex.quote(encoded)} | base64 -d > /workspace/Dockerfile.deplot"
         )
 
+        # ACR name derives from the FQDN (`dgscucorecr01.azurecr.io` -> `dgscucorecr01`).
+        acr_name = self._settings.acr_registry.split(".")[0]
+        acr_auth_cmd = (
+            "set -eu; "
+            'az login --federated-token "$(cat $AZURE_FEDERATED_TOKEN_FILE)" '
+            "--service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID > /dev/null; "
+            f"az acr login --name {shlex.quote(acr_name)}; "
+            "mkdir -p /kaniko/.docker; "
+            "cp ~/.docker/config.json /kaniko/.docker/config.json"
+        )
+
         return {
             "apiVersion": "batch/v1",
             "kind": "Job",
@@ -260,7 +272,18 @@ class KanikoBuildService(BaseService):
                                 "volumeMounts": [
                                     {"name": "workspace", "mountPath": "/workspace"}
                                 ],
-                            }
+                            },
+                            {
+                                # Exchange projected federated token -> ACR
+                                # refresh token via az CLI; write docker config
+                                # to a shared volume Kaniko reads.
+                                "name": "acr-auth",
+                                "image": _AZ_CLI_IMAGE,
+                                "command": ["/bin/sh", "-c", acr_auth_cmd],
+                                "volumeMounts": [
+                                    {"name": "docker-config", "mountPath": "/kaniko/.docker"}
+                                ],
+                            },
                         ],
                         "containers": [
                             {
@@ -274,12 +297,14 @@ class KanikoBuildService(BaseService):
                                     "--use-new-run",
                                 ],
                                 "volumeMounts": [
-                                    {"name": "workspace", "mountPath": "/workspace"}
+                                    {"name": "workspace", "mountPath": "/workspace"},
+                                    {"name": "docker-config", "mountPath": "/kaniko/.docker"},
                                 ],
                             }
                         ],
                         "volumes": [
                             {"name": "workspace", "emptyDir": {}},
+                            {"name": "docker-config", "emptyDir": {}},
                         ],
                     },
                 },
