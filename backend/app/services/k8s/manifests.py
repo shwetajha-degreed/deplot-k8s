@@ -120,15 +120,19 @@ class ContainerLimitRange:
 
 @dataclass
 class DefaultDenyNetworkPolicy:
-    """Default-deny ingress, allow-all egress.
+    """Default-deny ingress except from the gateway; allow-all egress.
 
-    Egress is intentionally open: Kaniko needs to pull base images from
-    Docker Hub / gcr.io / ACR and git needs to reach the source repo;
-    apps need outbound DNS + HTTP(S) at minimum. Locking egress down
-    per-workload is a future exercise (e.g. FQDN policies via Cilium).
+    Ingress from the Envoy Gateway namespace (env: envoy-gateway-system on
+    this cluster) is allowed so HTTPRoutes work. Same-namespace pod-to-pod
+    is allowed so app -> its own dependencies (Redis/Postgres) route.
+
+    Egress is intentionally open: Kaniko needs base images, git needs
+    source, apps need DNS + HTTP(S). Locking egress down per-workload is
+    a future exercise (e.g. FQDN policies via Cilium).
     """
 
     namespace: str
+    gateway_namespace: str = "envoy-gateway-system"
     name: str = "default-deny-ingress"
 
     def to_dict(self) -> ResourceDict:
@@ -139,6 +143,20 @@ class DefaultDenyNetworkPolicy:
             "spec": {
                 "podSelector": {},
                 "policyTypes": ["Ingress", "Egress"],
+                "ingress": [
+                    {
+                        "from": [
+                            {
+                                "namespaceSelector": {
+                                    "matchLabels": {
+                                        "kubernetes.io/metadata.name": self.gateway_namespace,
+                                    }
+                                }
+                            },
+                            {"podSelector": {}},
+                        ]
+                    }
+                ],
                 "egress": [{}],
             },
         }
