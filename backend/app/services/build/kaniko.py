@@ -305,6 +305,13 @@ class KanikoBuildService(BaseService):
                                     "--cache=true",
                                     "--use-new-run",
                                 ],
+                                # Node builds routinely need >1 GB during
+                                # snapshot; the namespace LimitRange default
+                                # (512 Mi) OOMs mid-build.
+                                "resources": {
+                                    "requests": {"cpu": "500m", "memory": "2Gi"},
+                                    "limits": {"cpu": "2", "memory": "3Gi"},
+                                },
                                 "volumeMounts": [
                                     {"name": "workspace", "mountPath": "/workspace"},
                                     {"name": "docker-config", "mountPath": "/kaniko/.docker"},
