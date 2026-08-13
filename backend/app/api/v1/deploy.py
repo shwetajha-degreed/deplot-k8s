@@ -303,7 +303,7 @@ async def start_deploy(body: DeployRequest):
         if session.stack.has_backend:
             services.append("api")
         if session.stack.has_frontend:
-            services.append("web")
+            services.append("frontend")
 
         if services:
             ns_result = await k8s_svc.create_namespace(namespace)
