@@ -54,6 +54,10 @@ class Settings(BaseSettings):
     build_namespace: str = "deplot-builds"
     gateway_namespace: str = "internal-gateway"
     gateway_name: str = "internal-gateway"
+    # Actual listener name on the shared internal-gateway:
+    # https-degreed-com serves *.internal.sbx.degreed.com
+    # https-degreed-app serves *.internal.sbx.degreed.app
+    gateway_section_name: str = "https-degreed-com"
     base_domain: str = Field(
         default="internal.sbx.degreed.com",
         validation_alias=AliasChoices("BASE_DOMAIN", "base_domain"),

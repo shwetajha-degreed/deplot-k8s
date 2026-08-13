@@ -306,7 +306,7 @@ class HTTPRoute:
     gateway_name: str = "internal-gateway"
     gateway_namespace: str = "internal-gateway"
     # TODO: confirm the actual listener section name on the shared gateway.
-    section_name: str | None = "https"
+    section_name: str | None = "https-degreed-com"
     path_prefix: str = "/"
 
     def to_dict(self) -> ResourceDict:

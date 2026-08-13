@@ -429,7 +429,11 @@ def _deployment(namespace: str, name: str, slug: str, image: str, port: int) -> 
                                 "limits": {"cpu": "500m", "memory": "512Mi"},
                             },
                             "readinessProbe": {
-                                "httpGet": {"path": "/health", "port": port},
+                                # TCP probe works for any app that opens the
+                                # port; HTTP GET /health assumes the app
+                                # implements it and 404s on frameworks like
+                                # Next.js by default.
+                                "tcpSocket": {"port": port},
                                 "initialDelaySeconds": 5,
                                 "periodSeconds": 10,
                             },
@@ -470,7 +474,7 @@ def _http_route(
         "metadata": {"name": name, "namespace": namespace},
         "spec": {
             "parentRefs": [
-                {"name": gateway_name, "namespace": gateway_ns, "sectionName": "https"}
+                {"name": gateway_name, "namespace": gateway_ns, "sectionName": "https-degreed-com"}
             ],
             "hostnames": [f"{slug}-{name}.{base_domain}"],
             "rules": [

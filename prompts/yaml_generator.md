@@ -37,7 +37,7 @@ For every deployable service (frontend, api, worker), emit:
     "parentRefs": [{
       "name": "internal-gateway",
       "namespace": "internal-gateway",
-      "sectionName": "https"
+      "sectionName": "https-degreed-com"
     }],
     "hostnames": ["{slug}-{service}.internal.sbx.degreed.com"],
     "rules": [{
@@ -61,7 +61,7 @@ DO NOT emit TLS config, cert-manager Certificates, or Ingress objects — the sh
 - **No cluster-scoped resources**: no ClusterRole, ClusterRoleBinding, StorageClass, Namespace object (Deplot creates that itself).
 - **No Ingress**: only HTTPRoute for external access.
 - **Ports**: pick a sensible container port per stack (Node 3000, Python/FastAPI 8000, Go 8080). Service port matches container port.
-- **Health**: readinessProbe path defaults to `/health` for backends, `/` for static frontends.
+- **Health**: prefer `tcpSocket` readiness probe on the container port unless the app is known to serve a `/health` endpoint. `tcpSocket` works for any app that binds the port; `httpGet /health` 404s on Next.js, Vite dev server, and most stock frameworks.
 
 ## Input schema
 
