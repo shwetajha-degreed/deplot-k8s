@@ -120,8 +120,16 @@ class ContainerLimitRange:
 
 @dataclass
 class DefaultDenyNetworkPolicy:
+    """Default-deny ingress, allow-all egress.
+
+    Egress is intentionally open: Kaniko needs to pull base images from
+    Docker Hub / gcr.io / ACR and git needs to reach the source repo;
+    apps need outbound DNS + HTTP(S) at minimum. Locking egress down
+    per-workload is a future exercise (e.g. FQDN policies via Cilium).
+    """
+
     namespace: str
-    name: str = "default-deny"
+    name: str = "default-deny-ingress"
 
     def to_dict(self) -> ResourceDict:
         return {
@@ -131,6 +139,7 @@ class DefaultDenyNetworkPolicy:
             "spec": {
                 "podSelector": {},
                 "policyTypes": ["Ingress", "Egress"],
+                "egress": [{}],
             },
         }
 
