@@ -1,0 +1,19 @@
+zerops:
+  - setup: app
+    build:
+      base: {{RUNTIME}}
+      buildCommands:
+        - npm ci
+        - npm run build
+      deployFiles: ./
+      cache: node_modules
+    run:
+      base: {{RUNTIME}}
+      ports:
+        - port: 3000
+          httpSupport: true
+      readiness:
+        http:
+          path: /api/health
+          statusCode: 200
+      start: npm start

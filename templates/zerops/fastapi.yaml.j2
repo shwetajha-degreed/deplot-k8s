@@ -1,0 +1,17 @@
+zerops:
+  - setup: api
+    build:
+      base: {{RUNTIME}}
+      buildCommands:
+        - pip install -r requirements.txt
+      deployFiles: ./
+    run:
+      base: {{RUNTIME}}
+      ports:
+        - port: 8000
+          httpSupport: true
+      readiness:
+        http:
+          path: /health
+          statusCode: 200
+      start: uvicorn main:app --host 0.0.0.0 --port 8000

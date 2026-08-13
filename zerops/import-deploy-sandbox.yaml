@@ -1,0 +1,11 @@
+project:
+  name: deplot-deploy-sandbox
+  description: "Deplot — isolated sandbox for real deployment testing (wizard deploys only)"
+  corePackage: LIGHT
+  tags:
+    - deplot
+    - sandbox
+    - hackathon
+
+# Empty project shell — wizard service-import adds slug-prefixed services per repo.
+services: []

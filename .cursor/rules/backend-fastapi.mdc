@@ -1,0 +1,66 @@
+---
+description: FastAPI backend conventions for Deplot
+globs: backend/**/*.py
+alwaysApply: false
+---
+
+# Backend (FastAPI)
+
+## Structure
+
+Keep route handlers thin; business logic in services under `backend/` and agent modules under `agents/`.
+
+## Required Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/analyze` | Repository intelligence |
+| POST | `/architecture` | Generate architecture plan |
+| POST | `/generate-yaml` | Produce zerops.yaml |
+| POST | `/deploy` | Trigger Zerops deployment |
+| GET | `/deployment/{id}` | Deployment status |
+| POST | `/logs/analyze` | AI Log Doctor |
+| GET | `/health` | Service health |
+| GET | `/metrics` | Infrastructure metrics |
+
+## Patterns
+
+```python
+# ✅ Typed request/response models (Pydantic v2)
+class AnalyzeRequest(BaseModel):
+    repo_url: HttpUrl | None = None
+
+# ✅ Async for I/O (GitHub, Zerops, LLM, DB)
+async def analyze_repository(req: AnalyzeRequest) -> AnalyzeResponse: ...
+
+# ✅ Structured errors for frontend
+raise HTTPException(status_code=422, detail={"code": "MISSING_ENV", "field": "DATABASE_URL"})
+```
+
+## Integrations
+
+- **GitHub** — clone/fetch repo metadata; optional OAuth
+- **Zerops** — deploy via generated zerops.yaml; poll deployment status
+- **PostgreSQL** — persist deployments, analysis results, scores
+- **Redis** — cache analysis, session state, job queues if needed
+- **LLM** — structured tool calling; one agent per concern (see `agents/`)
+
+## AI Doctor Response Shape
+
+Always return structured diagnosis when analyzing logs:
+
+```python
+class Diagnosis(BaseModel):
+    root_cause: str
+    reason: str
+    impact: str
+    confidence: float  # 0.0–1.0
+    suggested_fix: str
+    log_summary: str | None = None
+```
+
+## Avoid
+
+- Monolithic prompts — delegate to specialized agents
+- Blocking sync calls in async routes
+- Hardcoded secrets — use `os.environ` / settings module

@@ -1,0 +1,63 @@
+---
+description: Deplot AI product vision, scope, and hackathon guardrails
+alwaysApply: true
+---
+
+# Deplot AI — Core Guardrails
+
+Deplot is an **AI Platform Engineer**, not an AI code writer. Every change should advance: repo understanding → architecture → zerops.yaml → deploy → monitor → diagnose → self-heal.
+
+## Product North Star
+
+Judges should summarize in one sentence: *"Deplot understands any repository, generates Zerops deployment config, deploys automatically, explains failures in plain English, and helps ship production-ready apps faster."*
+
+Make **Zerops the product**, not just hosting. zerops.yaml generation and Zerops-native workflows are first-class features.
+
+## Build — In Scope (48-hour hackathon)
+
+- Repository Intelligence (GitHub URL / ZIP → stack detection)
+- AI Architecture Builder (React Flow visualization)
+- Deployment Planner (plan + cost/time estimates)
+- zerops.yaml Generator (build, runtime, ports, readiness, env, cache, deployFiles)
+- Deployment Engine (real-time status updates)
+- Live Infrastructure Dashboard (CPU, memory, logs, health, URL)
+- AI Deployment Doctor (root cause, impact, confidence, suggested fix)
+- AI Log Summarizer + Infrastructure Advisor + Deployment Score
+- Specialized agents: Repository Analyzer, Infrastructure Planner, Deployment Generator, Deployment Validator, Log Analyst, Optimization Advisor
+
+## Do NOT Build (hackathon scope)
+
+Skip unless explicitly requested: user accounts, billing, teams, RBAC, notifications, mobile app, multi-cloud, Kubernetes beyond Zerops needs, full CI/CD integrations.
+
+## Engineering Principles
+
+1. **Minimal diffs** — Smallest correct change; no drive-by refactors.
+2. **Demo-first** — Prioritize the 3-minute demo flow over polish on edge cases.
+3. **Real integrations** — Prefer live Zerops/GitHub/log APIs over mocks when feasible for demo.
+4. **Structured AI output** — Use tool calling and typed schemas; avoid one giant prompt.
+5. **No secrets in repo** — Never commit `.env`, tokens, or credentials; use env vars.
+6. **No unsolicited docs** — Don't add README/markdown unless asked.
+
+## Architecture Reference
+
+```
+Frontend (Next.js + Tailwind + shadcn + React Flow)
+    │ REST + WebSockets
+Backend (FastAPI)
+    → Project Analyzer → LLM Agents → Framework Detector
+    → Deployment Planner → zerops.yaml Generator → Deployment Service
+    → GitHub Service → Log Analyzer → Monitoring
+PostgreSQL · Redis · Object Storage · Zerops
+```
+
+## API Surface (preserve naming)
+
+`POST /analyze` · `POST /deploy` · `POST /generate-yaml` · `POST /logs/analyze` · `POST /architecture` · `GET /deployment/:id` · `GET /health` · `GET /metrics`
+
+## Folder Layout
+
+```
+frontend/  backend/  agents/  database/  docker/  docs/
+agents/repository/  agents/deployment/  agents/zerops/  agents/logs/  agents/monitoring/
+prompts/  templates/  zerops/
+```

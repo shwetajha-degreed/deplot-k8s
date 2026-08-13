@@ -1,0 +1,19 @@
+# Import into EXISTING project (Deplot)
+# Create service shells first — attach zerops.yaml + GitHub repo when deploying code
+services:
+  - hostname: postgres
+    type: postgresql@16
+    mode: NON_HA
+    priority: 3
+
+  - hostname: api
+    type: python@latest
+    enableSubdomainAccess: true
+    priority: 1
+    startWithoutCode: true
+
+  - hostname: web
+    type: nodejs@22
+    enableSubdomainAccess: true
+    priority: 1
+    startWithoutCode: true

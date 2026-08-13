@@ -1,0 +1,31 @@
+---
+description: Git and shell safety guardrails
+alwaysApply: true
+---
+
+# Git & Shell Guardrails
+
+## Git — Never
+
+- Update git config
+- Force push to `main`/`master` (warn user if requested)
+- `git push --force` unless user explicitly requests it
+- Skip hooks (`--no-verify`, `--no-gpg-sign`) unless user explicitly requests
+- `git commit --amend` unless all safety conditions are met (user asked, your commit, not pushed)
+- Create commits or push unless the user explicitly asks
+
+## Git — Always
+
+- Run `git status`, `git diff`, and `git log` before committing when asked
+- Exclude secret files (`.env`, credentials) from commits; warn if user tries to commit them
+- Use complete, descriptive commit messages focused on *why*
+
+## Shell — Never
+
+- Destructive commands without explicit user approval (`rm -rf`, `drop database`, etc.)
+- Print or log secrets, tokens, or API keys
+
+## Shell — Prefer
+
+- Non-interactive flags (no `-i` on git rebase/add)
+- Absolute paths on Windows when paths are ambiguous

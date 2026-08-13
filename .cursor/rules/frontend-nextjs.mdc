@@ -1,0 +1,40 @@
+---
+description: Next.js frontend conventions for Deplot
+globs: frontend/**/*.{ts,tsx,js,jsx,css}
+alwaysApply: false
+---
+
+# Frontend (Next.js)
+
+## Stack
+
+Next.js · Tailwind CSS · shadcn/ui · React Flow (architecture diagrams)
+
+## Patterns
+
+- Functional components; extract hooks for reusable logic (deployment polling, WebSocket streams)
+- Use shadcn/ui for consistent demo-quality UI — professional, not prototype-styled
+- React Flow for Module 2 architecture visualization (Frontend → API → DB → Redis → Workers → Storage)
+
+## Key UI Surfaces
+
+1. **Repo input** — GitHub URL or ZIP upload
+2. **Stack detection results** — language, framework, runtime, package manager, DB
+3. **Architecture diagram** — interactive React Flow graph
+4. **Deployment plan** — services, estimated cost, build time
+5. **zerops.yaml preview** — syntax-highlighted, editable optional
+6. **Deploy button + live status** — Building → Installing → Uploading → Runtime → DB → Readiness → Complete
+7. **Infrastructure dashboard** — CPU, memory, logs, health, URL
+8. **AI Doctor panel** — root cause, reason, impact, confidence %, suggested fix
+9. **Deployment score** — Security, Performance, Scalability, Reliability
+
+## Data Fetching
+
+- REST for CRUD and analysis endpoints
+- WebSockets or SSE for real-time deployment updates
+- Handle loading/error states — demo failures should look intentional, not broken
+
+## Avoid
+
+- Over-engineering state management (no Redux unless needed)
+- Building auth UI (GitHub OAuth is optional backend-only for hackathon)

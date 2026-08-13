@@ -1,0 +1,48 @@
+---
+description: Specialized AI agent architecture and prompts
+globs: agents/**/*.{py,md},prompts/**/*
+alwaysApply: false
+---
+
+# AI Agent Architecture
+
+Use **specialized agents**, not one mega-prompt.
+
+## Agents
+
+| Agent | Role | Output |
+|-------|------|--------|
+| Repository Analyzer | Understand project structure | Stack detection JSON |
+| Infrastructure Planner | Design topology | Architecture graph nodes/edges |
+| Deployment Generator | Produce Zerops config | Valid zerops.yaml |
+| Deployment Validator | Pre-flight checks | missing env, ports, Docker, deps |
+| Log Analyst | Diagnose failures | Diagnosis (root cause, fix, confidence) |
+| Optimization Advisor | Post-deploy review | Recommendations + deployment score |
+
+## Structured Output
+
+- Use tool/function calling with JSON schemas
+- Validate LLM output with Pydantic before passing to services
+- Keep prompts in `prompts/` — version and name by agent (e.g. `prompts/log-analyst.md`)
+
+## Repository Detection Targets
+
+Detect when present: language, framework, runtime version, package manager, database (Prisma/Postgres/etc.), frontend/backend split, workers, Redis, object storage needs.
+
+## Log Analyst — Signature Feature
+
+Transform raw logs into:
+
+```
+Root Cause: Prisma migration failed
+Reason: DATABASE_URL missing
+Impact: Backend cannot connect to database
+Confidence: 96%
+Suggested Fix: Set DATABASE_URL in Zerops env vars
+```
+
+Never return only "Exit code 1" — always explain in plain English.
+
+## Deployment Score Dimensions
+
+Security · Performance · Scalability · Reliability (0–10 scale with brief justification)
