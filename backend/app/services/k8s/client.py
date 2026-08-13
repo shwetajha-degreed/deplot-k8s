@@ -160,7 +160,11 @@ class KubernetesService(BaseService):
                     field_manager=_FIELD_MANAGER, force=True,
                 )
         except ApiException as exc:
-            if exc.status == 404:
+            # 404 = resource doesn't exist yet (expected on first apply)
+            # 422 = kubernetes-python's patch_* with force=True doesn't emit
+            #   the SSA Content-Type header, so the API server rejects the
+            #   body as invalid strategic-merge-patch on non-existent objects
+            if exc.status in (404, 422):
                 return self._create_sync(manifest)
             raise
         # Unknown kinds fall through to a create attempt so callers get a real
