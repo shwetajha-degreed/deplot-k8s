@@ -58,33 +58,38 @@ def _fallback_dockerfile(stack, service_name: str) -> str:
     is_frontend = service_name in ("web", "frontend")
     fw = ((stack.backend_framework if not is_frontend else stack.framework) or "").lower()
     runtime = ((stack.backend_runtime if not is_frontend else stack.runtime) or "").lower()
+    sub = (
+        stack.monorepo_frontend_path if is_frontend else stack.monorepo_backend_path
+    ) or "."
 
     if is_frontend or "next" in fw or "node" in runtime:
+        # npm install (not `npm ci`) — lockfile may be absent; robustness over
+        # reproducibility for the sandbox smoke path.
         return (
-            "FROM node:22-alpine AS builder\n"
-            "WORKDIR /app\n"
-            "COPY package*.json ./\n"
-            "RUN npm ci\n"
-            "COPY . .\n"
-            "RUN npm run build\n"
-            "\n"
-            "FROM node:22-alpine\n"
-            "WORKDIR /app\n"
-            "ENV NODE_ENV=production\n"
-            "RUN addgroup -S app && adduser -S app -G app\n"
-            "COPY --from=builder --chown=app:app /app ./\n"
-            "USER app\n"
-            "EXPOSE 3000\n"
-            'CMD ["npm", "start"]\n'
+            f"FROM node:22-alpine AS builder\n"
+            f"WORKDIR /app\n"
+            f"COPY {sub}/package*.json ./\n"
+            f"RUN npm install --no-audit --no-fund\n"
+            f"COPY {sub}/ ./\n"
+            f"RUN npm run build || echo 'no build step'\n"
+            f"\n"
+            f"FROM node:22-alpine\n"
+            f"WORKDIR /app\n"
+            f"ENV NODE_ENV=production\n"
+            f"RUN addgroup -S app && adduser -S app -G app\n"
+            f"COPY --from=builder --chown=app:app /app ./\n"
+            f"USER app\n"
+            f"EXPOSE 3000\n"
+            f'CMD ["npm", "start"]\n'
         )
     if "fastapi" in fw or "python" in runtime:
         return (
-            "FROM python:3.12-slim\n"
-            "WORKDIR /app\n"
-            "ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n"
-            "COPY requirements.txt* pyproject.toml* ./\n"
-            "RUN pip install --no-cache-dir -r requirements.txt || true\n"
-            "COPY . .\n"
+            f"FROM python:3.12-slim\n"
+            f"WORKDIR /app\n"
+            f"ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n"
+            f"COPY {sub}/requirements.txt* {sub}/pyproject.toml* ./\n"
+            f"RUN pip install --no-cache-dir -r requirements.txt || true\n"
+            f"COPY {sub}/ ./\n"
             "RUN useradd -u 1001 -m app && chown -R app:app /app\n"
             "USER app\n"
             "EXPOSE 8000\n"
