@@ -17,6 +17,7 @@ from app.services.base import BaseService
 
 from .events import classify_pod, stream_events
 from .manifests import (
+    ContainerLimitRange,
     DefaultDenyNetworkPolicy,
     Namespace,
     ResourceQuota,
@@ -496,6 +497,7 @@ class KubernetesService(BaseService):
     ) -> dict[str, Any]:
         ns_body = Namespace(name=name, labels=labels).to_dict()
         quota_body = ResourceQuota(name=f"{name}-quota", namespace=name).to_dict()
+        limits_body = ContainerLimitRange(namespace=name).to_dict()
         deny_body = DefaultDenyNetworkPolicy(namespace=name).to_dict()
 
         # Explicit create + treat 409 as idempotent success. patch_* with
@@ -517,6 +519,15 @@ class KubernetesService(BaseService):
         if ns_err:
             return {"ok": False, "namespace": name, "errors": [ns_err]}
 
+        # LimitRange must exist BEFORE the ResourceQuota can be satisfied by
+        # any admission-webhook-injected containers (e.g. Datadog sidecars).
+        limits_err = await asyncio.to_thread(
+            _create_sync, "LimitRange",
+            self._core().create_namespaced_limit_range,
+            namespace=name, body=limits_body,
+        )
+        if limits_err:
+            errors.append(limits_err)
         quota_err = await asyncio.to_thread(
             _create_sync, "ResourceQuota",
             self._core().create_namespaced_resource_quota,

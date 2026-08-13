@@ -58,9 +58,9 @@ class Namespace:
 class ResourceQuota:
     name: str
     namespace: str
-    cpu: str = "500m"
-    memory: str = "512Mi"
-    storage: str = "5Gi"
+    cpu: str = "4"
+    memory: str = "4Gi"
+    storage: str = "20Gi"
 
     def to_dict(self) -> ResourceDict:
         return {
@@ -75,6 +75,45 @@ class ResourceQuota:
                     "limits.memory": self.memory,
                     "requests.storage": self.storage,
                 },
+            },
+        }
+
+
+@dataclass
+class ContainerLimitRange:
+    """Auto-fills requests/limits for containers that don't declare them.
+
+    Required when the cluster has admission webhooks (Datadog, service mesh
+    sidecars, etc.) that inject containers without resource specs into user
+    pods — a strict ResourceQuota otherwise rejects the whole pod.
+    """
+
+    namespace: str
+    name: str = "default-limits"
+    default_cpu: str = "500m"
+    default_memory: str = "512Mi"
+    default_request_cpu: str = "100m"
+    default_request_memory: str = "128Mi"
+
+    def to_dict(self) -> ResourceDict:
+        return {
+            "apiVersion": "v1",
+            "kind": "LimitRange",
+            "metadata": {"name": self.name, "namespace": self.namespace},
+            "spec": {
+                "limits": [
+                    {
+                        "type": "Container",
+                        "default": {
+                            "cpu": self.default_cpu,
+                            "memory": self.default_memory,
+                        },
+                        "defaultRequest": {
+                            "cpu": self.default_request_cpu,
+                            "memory": self.default_request_memory,
+                        },
+                    }
+                ]
             },
         }
 
