@@ -307,6 +307,16 @@ async def start_deploy(body: DeployRequest):
                     status_code=502,
                     detail={"error": "namespace_create_failed", **ns_result},
                 )
+            # Kaniko runs in a shared build namespace so one federated
+            # credential covers every deploy. NetworkPolicy/quota apply here
+            # too — the LimitRange defaults let admission-injected sidecars
+            # pass the quota.
+            build_ns_result = await k8s_svc.create_namespace(settings.build_namespace)
+            if not build_ns_result.get("ok"):
+                raise HTTPException(
+                    status_code=502,
+                    detail={"error": "build_namespace_create_failed", **build_ns_result},
+                )
 
             prompt_path = Path(settings.prompts_dir) / "dockerfile_generator.md"
             prompt_template = (
@@ -327,7 +337,7 @@ async def start_deploy(body: DeployRequest):
                     dockerfile = _fallback_dockerfile(session.stack, svc_name)
                 build_coros.append(
                     kaniko_svc.build_image(
-                        namespace=namespace,
+                        namespace=settings.build_namespace,
                         service_name=svc_name,
                         slug=slug,
                         repo_url=session.repo_url,
@@ -337,7 +347,7 @@ async def start_deploy(body: DeployRequest):
             submissions = await asyncio.gather(*build_coros)
 
             waits = [
-                kaniko_svc.wait_for_build(namespace, sub["job_name"])
+                kaniko_svc.wait_for_build(settings.build_namespace, sub["job_name"])
                 for sub in submissions
             ]
             results = await asyncio.gather(*waits)

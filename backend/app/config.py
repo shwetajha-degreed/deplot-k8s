@@ -51,6 +51,7 @@ class Settings(BaseSettings):
             "AZURE_WORKLOAD_IDENTITY_CLIENT_ID", "azure_workload_identity_client_id"
         ),
     )
+    build_namespace: str = "deplot-builds"
     gateway_namespace: str = "internal-gateway"
     gateway_name: str = "internal-gateway"
     base_domain: str = Field(
