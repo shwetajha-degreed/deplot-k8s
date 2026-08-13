@@ -241,6 +241,28 @@ async def _run_live_import(
             namespace=namespace,
             slug=slug,
         )
+        # WHY: fire-and-forget — HTTP response returns immediately while the
+        # heal loop watches the Deployment in the background for up to 10 min.
+        try:
+            deployment_names = [
+                (m.get("metadata") or {}).get("name")
+                for m in (config.manifests or [])
+                if isinstance(m, dict) and m.get("kind") == "Deployment"
+            ]
+            deployment_names = [n for n in deployment_names if n]
+            if deployment_names:
+                heal = get_service("heal_loop")
+                asyncio.create_task(
+                    heal.watch_and_heal(deployment.id, namespace, deployment_names)
+                )
+        except Exception as exc:
+            record_ops_event(
+                deployment.id,
+                source="heal",
+                event_type="loop_start_failed",
+                message=f"failed to start heal loop: {exc!r}"[:500],
+                service="platform",
+            )
     else:
         await _mark_import_failure(
             deployment,

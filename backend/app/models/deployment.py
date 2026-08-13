@@ -112,6 +112,8 @@ class Deployment(BaseModel):
     score: DeploymentScore | None = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
+    heal_status: str | None = None
+    heal_history: list[dict] = Field(default_factory=list)
 
 
 class DeployRequest(BaseModel):

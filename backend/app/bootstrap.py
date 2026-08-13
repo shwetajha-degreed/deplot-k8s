@@ -10,6 +10,7 @@ from app.services.gemini import GeminiClient
 from app.services.github import GitHubService
 from app.services.dashboard import DashboardService
 from app.services.k8s import KubernetesService
+from app.services.heal.loop import HealLoopService
 from app.services.operations import AIOpsService, ObservabilityService
 from app.services.scoring import DeploymentScoreService
 from app.services.store import init_stores
@@ -46,6 +47,15 @@ def bootstrap(settings: Settings | None = None) -> None:
     service_registry.register("deps_redis", RedisProvisioner(k8s))
     service_registry.register("observability", ObservabilityService(settings))
     service_registry.register("aiops", AIOpsService(settings))
+    service_registry.register(
+        "heal_loop",
+        HealLoopService(
+            settings,
+            k8s=k8s,
+            gemini=gemini,
+            aiops=service_registry.get("aiops"),
+        ),
+    )
     service_registry.register("scoring", DeploymentScoreService(settings))
     service_registry.register("dashboard", DashboardService())
 
