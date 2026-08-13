@@ -495,25 +495,42 @@ class KubernetesService(BaseService):
         self, name: str, labels: dict[str, str] | None = None
     ) -> dict[str, Any]:
         ns_body = Namespace(name=name, labels=labels).to_dict()
+        quota_body = ResourceQuota(name=f"{name}-quota", namespace=name).to_dict()
+        deny_body = DefaultDenyNetworkPolicy(namespace=name).to_dict()
 
-        # Explicit create-then-409 idempotency: patch_namespace on a non-existent
-        # object doesn't behave as SSA in kubernetes-python (wrong content-type),
-        # so we can't rely on _apply's patch-first fallback for the initial create.
-        try:
-            await asyncio.to_thread(self._core().create_namespace, body=ns_body)
-        except ApiException as exc:
-            if exc.status != 409:
-                return {"ok": False, "namespace": name, "errors": [f"Namespace: {exc.reason}"]}
+        # Explicit create + treat 409 as idempotent success. patch_* with
+        # force=True in kubernetes-python doesn't emit the SSA Content-Type,
+        # so a patch on a non-existent object 422s instead of SSA-creating.
+        def _create_sync(kind: str, fn, **kwargs) -> str | None:
+            try:
+                fn(**kwargs)
+                return None
+            except ApiException as exc:
+                if exc.status == 409:
+                    return None
+                return f"{kind}: {exc.reason}"
 
         errors: list[str] = []
-        for manifest in (
-            ResourceQuota(name=f"{name}-quota", namespace=name).to_dict(),
-            DefaultDenyNetworkPolicy(namespace=name).to_dict(),
-        ):
-            try:
-                await self._apply(manifest)
-            except ApiException as exc:
-                errors.append(f"{manifest['kind']}: {exc.reason}")
+        ns_err = await asyncio.to_thread(
+            _create_sync, "Namespace", self._core().create_namespace, body=ns_body,
+        )
+        if ns_err:
+            return {"ok": False, "namespace": name, "errors": [ns_err]}
+
+        quota_err = await asyncio.to_thread(
+            _create_sync, "ResourceQuota",
+            self._core().create_namespaced_resource_quota,
+            namespace=name, body=quota_body,
+        )
+        if quota_err:
+            errors.append(quota_err)
+        deny_err = await asyncio.to_thread(
+            _create_sync, "NetworkPolicy",
+            self._networking().create_namespaced_network_policy,
+            namespace=name, body=deny_body,
+        )
+        if deny_err:
+            errors.append(deny_err)
         return {"ok": not errors, "namespace": name, "errors": errors}
 
     async def delete_namespace(self, name: str) -> dict[str, Any]:
