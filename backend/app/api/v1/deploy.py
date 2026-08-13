@@ -301,7 +301,12 @@ async def start_deploy(body: DeployRequest):
             services.append("web")
 
         if services:
-            await k8s_svc.create_namespace(namespace)
+            ns_result = await k8s_svc.create_namespace(namespace)
+            if not ns_result.get("ok"):
+                raise HTTPException(
+                    status_code=502,
+                    detail={"error": "namespace_create_failed", **ns_result},
+                )
 
             prompt_path = Path(settings.prompts_dir) / "dockerfile_generator.md"
             prompt_template = (

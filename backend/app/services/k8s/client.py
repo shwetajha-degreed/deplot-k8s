@@ -494,12 +494,22 @@ class KubernetesService(BaseService):
     async def create_namespace(
         self, name: str, labels: dict[str, str] | None = None
     ) -> dict[str, Any]:
-        ns = Namespace(name=name, labels=labels).to_dict()
-        quota = ResourceQuota(name=f"{name}-quota", namespace=name).to_dict()
-        deny = DefaultDenyNetworkPolicy(namespace=name).to_dict()
+        ns_body = Namespace(name=name, labels=labels).to_dict()
+
+        # Explicit create-then-409 idempotency: patch_namespace on a non-existent
+        # object doesn't behave as SSA in kubernetes-python (wrong content-type),
+        # so we can't rely on _apply's patch-first fallback for the initial create.
+        try:
+            await asyncio.to_thread(self._core().create_namespace, body=ns_body)
+        except ApiException as exc:
+            if exc.status != 409:
+                return {"ok": False, "namespace": name, "errors": [f"Namespace: {exc.reason}"]}
 
         errors: list[str] = []
-        for manifest in (ns, quota, deny):
+        for manifest in (
+            ResourceQuota(name=f"{name}-quota", namespace=name).to_dict(),
+            DefaultDenyNetworkPolicy(namespace=name).to_dict(),
+        ):
             try:
                 await self._apply(manifest)
             except ApiException as exc:
