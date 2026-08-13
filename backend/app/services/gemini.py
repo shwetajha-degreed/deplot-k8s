@@ -142,6 +142,50 @@ graph: {graph_summary}
             return None
         return None
 
+    async def generate_dockerfile(
+        self,
+        *,
+        slug: str,
+        repo_url: str,
+        service_name: str,
+        stack_summary: str,
+        prompt_template: str,
+    ) -> str | None:
+        if not self._enabled:
+            return None
+
+        import google.generativeai as genai
+
+        genai.configure(api_key=self._settings.gemini_api_key)
+        model = genai.GenerativeModel(self._settings.gemini_model)
+
+        prompt = f"""{prompt_template}
+
+## Input
+
+slug: {slug}
+repo_url: {repo_url}
+service_name: {service_name}
+stack: {stack_summary}
+"""
+        try:
+            response = await model.generate_content_async(prompt)
+            text = response.text or ""
+            match = re.search(r"\{[\s\S]*\}", text)
+            if not match:
+                return None
+            data = json.loads(match.group())
+            dockerfile = data.get("dockerfile") if isinstance(data, dict) else None
+            if (
+                isinstance(dockerfile, str)
+                and "FROM " in dockerfile
+                and len(dockerfile) > 50
+            ):
+                return dockerfile
+        except Exception:
+            return None
+        return None
+
     async def analyze_stack(self, files: dict[str, str]) -> dict | None:
         if not self._enabled or not files:
             return None

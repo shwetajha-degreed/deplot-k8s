@@ -1,4 +1,6 @@
+import asyncio
 from datetime import datetime
+from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
@@ -30,6 +32,65 @@ from app.services.store import deployment_store, session_store
 from app.services.timeline import record_ops_event
 
 router = APIRouter()
+
+
+def _fallback_dockerfile(stack, service_name: str) -> str:
+    is_frontend = service_name in ("web", "frontend")
+    fw = ((stack.backend_framework if not is_frontend else stack.framework) or "").lower()
+    runtime = ((stack.backend_runtime if not is_frontend else stack.runtime) or "").lower()
+
+    if is_frontend or "next" in fw or "node" in runtime:
+        return (
+            "FROM node:22-alpine AS builder\n"
+            "WORKDIR /app\n"
+            "COPY package*.json ./\n"
+            "RUN npm ci\n"
+            "COPY . .\n"
+            "RUN npm run build\n"
+            "\n"
+            "FROM node:22-alpine\n"
+            "WORKDIR /app\n"
+            "ENV NODE_ENV=production\n"
+            "RUN addgroup -S app && adduser -S app -G app\n"
+            "COPY --from=builder --chown=app:app /app ./\n"
+            "USER app\n"
+            "EXPOSE 3000\n"
+            'CMD ["npm", "start"]\n'
+        )
+    if "fastapi" in fw or "python" in runtime:
+        return (
+            "FROM python:3.12-slim\n"
+            "WORKDIR /app\n"
+            "ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n"
+            "COPY requirements.txt* pyproject.toml* ./\n"
+            "RUN pip install --no-cache-dir -r requirements.txt || true\n"
+            "COPY . .\n"
+            "RUN useradd -u 1001 -m app && chown -R app:app /app\n"
+            "USER app\n"
+            "EXPOSE 8000\n"
+            'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+        )
+    return (
+        "FROM alpine:3.20\n"
+        "WORKDIR /app\n"
+        "COPY . .\n"
+        "RUN adduser -D -u 1001 app\n"
+        "USER app\n"
+        "EXPOSE 8080\n"
+        'CMD ["/bin/sh", "-c", "echo no runtime configured; sleep infinity"]\n'
+    )
+
+
+def _dockerfile_stack_summary(stack) -> str:
+    parts = [
+        f"framework={stack.framework}",
+        f"runtime={stack.runtime}",
+        f"has_backend={stack.has_backend}",
+        f"has_frontend={stack.has_frontend}",
+        f"backend_framework={stack.backend_framework}",
+        f"backend_runtime={stack.backend_runtime}",
+    ]
+    return ", ".join(p for p in parts if p.split("=")[1] not in ("None", ""))
 
 
 def _stack_summary(session) -> str:
@@ -180,9 +241,71 @@ async def start_deploy(body: DeployRequest):
     k8s_svc = get_service("kubernetes")
     planner = get_service("planner")
     aiops = get_service("aiops")
+    gemini = get_service("gemini")
+    kaniko_svc = get_service("kaniko_build")
 
     if session.repo_url:
         session.stack.repo_slug = repo_slug_from_url(session.repo_url)
+
+    settings = get_settings()
+    slug = session.stack.repo_slug or repo_slug_from_url(session.repo_url)
+    namespace = f"deploy-{slug}"
+
+    if not body.demo_mode and session.repo_url:
+        services: list[str] = []
+        if session.stack.has_backend:
+            services.append("api")
+        if session.stack.has_frontend:
+            services.append("web")
+
+        if services:
+            await k8s_svc.create_namespace(namespace)
+
+            prompt_path = Path(settings.prompts_dir) / "dockerfile_generator.md"
+            prompt_template = (
+                prompt_path.read_text(encoding="utf-8") if prompt_path.exists() else ""
+            )
+            stack_summary = _dockerfile_stack_summary(session.stack)
+
+            build_coros = []
+            for svc_name in services:
+                dockerfile = await gemini.generate_dockerfile(
+                    slug=slug,
+                    repo_url=session.repo_url,
+                    service_name=svc_name,
+                    stack_summary=stack_summary,
+                    prompt_template=prompt_template,
+                )
+                if not dockerfile:
+                    dockerfile = _fallback_dockerfile(session.stack, svc_name)
+                build_coros.append(
+                    kaniko_svc.build_image(
+                        namespace=namespace,
+                        service_name=svc_name,
+                        slug=slug,
+                        repo_url=session.repo_url,
+                        dockerfile=dockerfile,
+                    )
+                )
+            submissions = await asyncio.gather(*build_coros)
+
+            waits = [
+                kaniko_svc.wait_for_build(namespace, sub["job_name"])
+                for sub in submissions
+            ]
+            results = await asyncio.gather(*waits)
+
+            for sub, res in zip(submissions, results):
+                if res.get("status") != "succeeded":
+                    raise HTTPException(
+                        status_code=502,
+                        detail={
+                            "error": "image build failed",
+                            "image": sub["image"],
+                            "job_name": sub["job_name"],
+                            "logs": (res.get("logs") or [])[-40:],
+                        },
+                    )
 
     config = await yaml_svc.generate(session.stack, session.repo_url)
 
@@ -195,9 +318,7 @@ async def start_deploy(body: DeployRequest):
         )
 
     plan = planner.build_plan(session.stack, graph)
-    get_settings()
-    slug = session.stack.repo_slug or repo_slug_from_url(session.repo_url)
-    namespace = config.namespace or f"deploy-{slug}"
+    namespace = config.namespace or namespace
 
     deployment = Deployment(
         session_id=body.session_id,

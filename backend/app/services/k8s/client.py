@@ -70,6 +70,9 @@ class KubernetesService(BaseService):
     def _networking(self) -> client.NetworkingV1Api:
         return client.NetworkingV1Api()
 
+    def _batch(self) -> client.BatchV1Api:
+        return client.BatchV1Api()
+
     # ------------------------------------------------------------- primitives --
 
     async def _apply(self, manifest: dict[str, Any]) -> dict[str, Any]:
@@ -131,6 +134,16 @@ class KubernetesService(BaseService):
                         field_manager=_FIELD_MANAGER, force=True,
                     )
                 )
+            if kind == "Job":
+                # Jobs are immutable in most spec fields; use create-with-fallback.
+                return self._create_sync(manifest)
+            if kind == "ServiceAccount":
+                return _to_dict(
+                    self._core().patch_namespaced_service_account(
+                        name=name, namespace=ns, body=manifest,
+                        field_manager=_FIELD_MANAGER, force=True,
+                    )
+                )
             if kind == "HTTPRoute":
                 group, version = ref.api_version.split("/", 1)
                 return self._custom().patch_namespaced_custom_object(
@@ -168,6 +181,12 @@ class KubernetesService(BaseService):
         if kind == "NetworkPolicy":
             return _to_dict(
                 self._networking().create_namespaced_network_policy(namespace=ns, body=manifest)
+            )
+        if kind == "Job":
+            return _to_dict(self._batch().create_namespaced_job(namespace=ns, body=manifest))
+        if kind == "ServiceAccount":
+            return _to_dict(
+                self._core().create_namespaced_service_account(namespace=ns, body=manifest)
             )
         if kind == "HTTPRoute":
             group, version = ref.api_version.split("/", 1)
