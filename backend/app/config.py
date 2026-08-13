@@ -36,34 +36,33 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.0-flash"
     github_token: str = ""
 
-    # Zerops GUI forbids custom env keys starting with ZEROPS_ — use DEPLOT_* /
-    # PLATFORM_* / DEPLOY_* there. Local .env may still use ZEROPS_*.
-    zerops_api_token: str = Field(
-        default="",
-        validation_alias=AliasChoices("DEPLOT_API_TOKEN", "ZEROPS_API_TOKEN", "zerops_api_token"),
+    # Azure / AKS target platform
+    aks_cluster_name: str = Field(
+        default="DGCUSUSSBXAKS01",
+        validation_alias=AliasChoices("AKS_CLUSTER_NAME", "aks_cluster_name"),
     )
-    zerops_project_id: str = Field(
-        default="",
-        validation_alias=AliasChoices(
-            "PLATFORM_PROJECT_ID", "ZEROPS_PROJECT_ID", "zerops_project_id"
-        ),
+    acr_registry: str = Field(
+        default="dgscucorecr01.azurecr.io",
+        validation_alias=AliasChoices("ACR_REGISTRY", "acr_registry"),
     )
-    zerops_deploy_project_id: str = Field(
+    azure_workload_identity_client_id: str = Field(
         default="",
         validation_alias=AliasChoices(
-            "DEPLOY_PROJECT_ID", "ZEROPS_DEPLOY_PROJECT_ID", "zerops_deploy_project_id"
+            "AZURE_WORKLOAD_IDENTITY_CLIENT_ID", "azure_workload_identity_client_id"
         ),
     )
-    zerops_api_base: str = "https://api.app-prg1.zerops.io/api/rest/public"
-    zcli_path: str = ""
+    gateway_namespace: str = "internal-gateway"
+    gateway_name: str = "internal-gateway"
+    base_domain: str = Field(
+        default="internal.sbx.degreed.com",
+        validation_alias=AliasChoices("BASE_DOMAIN", "base_domain"),
+    )
+    deplot_namespace: str = "deplot-system"
+    kubeconfig_path: str = Field(
+        default="",
+        description="Path to kubeconfig for local dev. Empty = try in-cluster config first.",
+    )
     search_heavy_stack: bool = True
-    zerops_project_core: str = Field(
-        default="lightweight",
-        validation_alias=AliasChoices(
-            "DEPLOT_PROJECT_CORE", "ZEROPS_PROJECT_CORE", "zerops_project_core"
-        ),
-        description="lightweight (free) or serious ($10/mo) — Zerops project core tier for cost estimates",
-    )
 
     prompts_dir: Path = REPO_ROOT / "prompts"
     templates_dir: Path = REPO_ROOT / "templates"
@@ -78,19 +77,8 @@ class Settings(BaseSettings):
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
-    @property
-    def zerops_target_project_id(self) -> str:
-        """Project used for wizard deploys (customer/showcase repos)."""
-        return self.zerops_deploy_project_id or self.zerops_project_id
-
-    @property
-    def deploy_project_isolated(self) -> bool:
-        """True when deploy sandbox is a separate project from the Deplot platform."""
-        return bool(
-            self.zerops_deploy_project_id
-            and self.zerops_project_id
-            and self.zerops_deploy_project_id != self.zerops_project_id
-        )
+    def hostname_for(self, app_slug: str, namespace: str) -> str:
+        return f"{app_slug}-{namespace}.{self.base_domain}"
 
 
 @lru_cache
