@@ -40,7 +40,7 @@ class DeploymentScoreService(BaseService):
             from app.bootstrap import get_service
 
             yaml_svc = get_service("yaml_generator")
-            config = yaml_svc.generate(stack, session.repo_url if session else None)
+            config = await yaml_svc.generate(stack, session.repo_url if session else None)
             validation = yaml_svc.validate(stack, config)
 
         observability = await self._observability.get_snapshot(deployment_id)

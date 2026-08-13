@@ -106,6 +106,42 @@ Return JSON: {{ "recommendations": ["...", "..."] }} with 2-4 short, actionable 
             return None
         return None
 
+    async def generate_manifests(
+        self,
+        *,
+        slug: str,
+        stack_summary: str,
+        graph_summary: str,
+        prompt_template: str,
+    ) -> dict | None:
+        if not self._enabled:
+            return None
+
+        import google.generativeai as genai
+
+        genai.configure(api_key=self._settings.gemini_api_key)
+        model = genai.GenerativeModel(self._settings.gemini_model)
+
+        prompt = f"""{prompt_template}
+
+## Input
+
+slug: {slug}
+stack: {stack_summary}
+graph: {graph_summary}
+"""
+        try:
+            response = await model.generate_content_async(prompt)
+            text = response.text or ""
+            match = re.search(r"\{[\s\S]*\}", text)
+            if match:
+                data = json.loads(match.group())
+                if isinstance(data, dict) and isinstance(data.get("manifests"), list):
+                    return data
+        except Exception:
+            return None
+        return None
+
     async def analyze_stack(self, files: dict[str, str]) -> dict | None:
         if not self._enabled or not files:
             return None

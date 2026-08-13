@@ -37,10 +37,12 @@ class YamlGeneratorAgent(BaseAgent[K8sConfig]):
     prompt_file = "yaml_generator.md"
 
     async def run(self, context: AgentContext) -> K8sConfig:
+        from app.bootstrap import get_service
+
         stack: StackDetection = context.payload["stack"]
         repo_url = context.payload.get("repo_url")
-        service = YamlGeneratorService(self._settings.templates_dir, self._settings.search_heavy_stack)
-        return service.generate(stack, repo_url)
+        service: YamlGeneratorService = get_service("yaml_generator")
+        return await service.generate(stack, repo_url)
 
 
 @register_agent
@@ -49,9 +51,11 @@ class DeploymentValidatorAgent(BaseAgent[ValidationReport]):
     prompt_file = "deployment_validator.md"
 
     async def run(self, context: AgentContext) -> ValidationReport:
+        from app.bootstrap import get_service
+
         stack: StackDetection = context.payload["stack"]
         config: K8sConfig = context.payload["config"]
-        service = YamlGeneratorService(self._settings.templates_dir, self._settings.search_heavy_stack)
+        service: YamlGeneratorService = get_service("yaml_generator")
         return service.validate(stack, config)
 
 

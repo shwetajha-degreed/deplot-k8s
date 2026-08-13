@@ -209,12 +209,23 @@ class PlannerService(BaseService):
 class YamlGeneratorService(BaseService):
     name = "yaml_generator"
 
-    def __init__(self, templates_dir: Path, search_heavy: bool = True) -> None:
-        self._templates_dir = templates_dir
-        self._search_heavy = search_heavy
+    def __init__(
+        self,
+        prompts_dir: Path,
+        gemini: GeminiClient | None = None,
+        registry_prefix: str = "dgscucorecr01.azurecr.io",
+        gateway_ns: str = "internal-gateway",
+        gateway_name: str = "internal-gateway",
+        base_domain: str = "internal.sbx.degreed.com",
+    ) -> None:
+        self._prompts_dir = prompts_dir
+        self._gemini = gemini
+        self._registry = registry_prefix
+        self._gateway_ns = gateway_ns
+        self._gateway_name = gateway_name
+        self._base_domain = base_domain
 
-    def generate(self, stack: StackDetection, repo_url: str | None) -> K8sConfig:
-        # TODO(k8s-port): emit real Deployment/Service/HTTPRoute manifests.
+    async def generate(self, stack: StackDetection, repo_url: str | None) -> K8sConfig:
         slug = stack.repo_slug or repo_slug_from_url(repo_url)
         stack.repo_slug = slug
         services = [
@@ -222,7 +233,73 @@ class YamlGeneratorService(BaseService):
             if self._service_needed(n, stack)
         ]
         namespace = f"deploy-{slug}"
-        return K8sConfig(manifests=[], namespace=namespace, services=services)
+
+        manifests: list[dict] = []
+        if self._gemini and self._gemini.enabled:
+            prompt = self._load_prompt("yaml_generator.md")
+            data = await self._gemini.generate_manifests(
+                slug=slug,
+                stack_summary=self._stack_summary(stack),
+                graph_summary=", ".join(services),
+                prompt_template=prompt,
+            )
+            if data and isinstance(data.get("manifests"), list):
+                manifests = data["manifests"]
+
+        if not manifests:
+            manifests = self._fallback_manifests(stack, slug, namespace, services)
+
+        return K8sConfig(manifests=manifests, namespace=namespace, services=services)
+
+    def _load_prompt(self, name: str) -> str:
+        path = self._prompts_dir / name
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _stack_summary(self, stack: StackDetection) -> str:
+        parts = [
+            f"framework={stack.framework}",
+            f"runtime={stack.runtime}",
+            f"has_backend={stack.has_backend}",
+            f"has_frontend={stack.has_frontend}",
+            f"database={stack.database}",
+            f"cache={stack.cache}",
+        ]
+        return ", ".join(p for p in parts if p.split("=")[1] not in ("None", "False", ""))
+
+    def _fallback_manifests(
+        self,
+        stack: StackDetection,
+        slug: str,
+        namespace: str,
+        services: list[str],
+    ) -> list[dict]:
+        deployable = [s for s in services if s in ("api", "frontend")]
+        if not deployable and stack.has_backend:
+            deployable = ["api"]
+        if not deployable:
+            deployable = ["web"]
+
+        manifests: list[dict] = []
+        for svc in deployable:
+            port = 8000 if svc == "api" else 3000
+            image = f"{self._registry}/{slug}-{svc}:latest"
+            external = svc in ("frontend", "web") or (svc == "api" and not stack.has_frontend)
+
+            manifests.append(_deployment(namespace, svc, slug, image, port))
+            manifests.append(_service(namespace, svc, port))
+            if external:
+                manifests.append(
+                    _http_route(
+                        namespace,
+                        svc,
+                        slug,
+                        port,
+                        self._gateway_ns,
+                        self._gateway_name,
+                        self._base_domain,
+                    )
+                )
+        return manifests
 
     def validate(self, stack: StackDetection, config: K8sConfig) -> ValidationReport:
         issues: list[ValidationIssue] = []
@@ -322,3 +399,85 @@ class YamlGeneratorService(BaseService):
             "search": bool(stack.search),
         }
         return mapping.get(name, False)
+
+
+def _deployment(namespace: str, name: str, slug: str, image: str, port: int) -> dict:
+    return {
+        "apiVersion": "apps/v1",
+        "kind": "Deployment",
+        "metadata": {
+            "name": name,
+            "namespace": namespace,
+            "labels": {
+                "app.kubernetes.io/name": name,
+                "app.kubernetes.io/part-of": slug,
+            },
+        },
+        "spec": {
+            "replicas": 1,
+            "selector": {"matchLabels": {"app.kubernetes.io/name": name}},
+            "template": {
+                "metadata": {"labels": {"app.kubernetes.io/name": name}},
+                "spec": {
+                    "containers": [
+                        {
+                            "name": name,
+                            "image": image,
+                            "ports": [{"containerPort": port}],
+                            "resources": {
+                                "requests": {"cpu": "100m", "memory": "128Mi"},
+                                "limits": {"cpu": "500m", "memory": "512Mi"},
+                            },
+                            "readinessProbe": {
+                                "httpGet": {"path": "/health", "port": port},
+                                "initialDelaySeconds": 5,
+                                "periodSeconds": 10,
+                            },
+                            "env": [{"name": "PORT", "value": str(port)}],
+                        }
+                    ]
+                },
+            },
+        },
+    }
+
+
+def _service(namespace: str, name: str, port: int) -> dict:
+    return {
+        "apiVersion": "v1",
+        "kind": "Service",
+        "metadata": {"name": name, "namespace": namespace},
+        "spec": {
+            "type": "ClusterIP",
+            "selector": {"app.kubernetes.io/name": name},
+            "ports": [{"port": port, "targetPort": port, "protocol": "TCP"}],
+        },
+    }
+
+
+def _http_route(
+    namespace: str,
+    name: str,
+    slug: str,
+    port: int,
+    gateway_ns: str,
+    gateway_name: str,
+    base_domain: str,
+) -> dict:
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {"name": name, "namespace": namespace},
+        "spec": {
+            "parentRefs": [
+                {"name": gateway_name, "namespace": gateway_ns, "sectionName": "https"}
+            ],
+            "hostnames": [f"{slug}-{name}.{base_domain}"],
+            "rules": [
+                {
+                    "matches": [{"path": {"type": "PathPrefix", "value": "/"}}],
+                    "backendRefs": [{"name": name, "port": port}],
+                }
+            ],
+        },
+    }

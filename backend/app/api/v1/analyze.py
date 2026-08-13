@@ -109,7 +109,7 @@ async def validate_config(body: ValidateRequest):
         raise HTTPException(status_code=404, detail="Session not found")
 
     yaml_svc = get_service("yaml_generator")
-    config = yaml_svc.generate(session.stack, session.repo_url)
+    config = await yaml_svc.generate(session.stack, session.repo_url)
 
     orchestrator = get_orchestrator()
     return await orchestrator.run(

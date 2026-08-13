@@ -184,7 +184,7 @@ async def start_deploy(body: DeployRequest):
     if session.repo_url:
         session.stack.repo_slug = repo_slug_from_url(session.repo_url)
 
-    config = yaml_svc.generate(session.stack, session.repo_url)
+    config = await yaml_svc.generate(session.stack, session.repo_url)
 
     graph = session.architecture
     if not graph:

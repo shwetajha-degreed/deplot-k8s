@@ -3,6 +3,7 @@
 from app.config import Settings, get_settings
 from app.core.registry import service_registry
 from app.services.domain import AnalysisService, PlannerService, YamlGeneratorService
+from app.services.gemini import GeminiClient
 from app.services.github import GitHubService
 from app.services.dashboard import DashboardService
 from app.services.k8s import KubernetesService
@@ -19,12 +20,21 @@ def bootstrap(settings: Settings | None = None) -> None:
 
     init_stores(settings.database_url)
 
+    gemini = GeminiClient(settings)
+    service_registry.register("gemini", gemini)
     service_registry.register("github", GitHubService(settings))
     service_registry.register("analysis", AnalysisService())
     service_registry.register("planner", PlannerService())
     service_registry.register(
         "yaml_generator",
-        YamlGeneratorService(settings.templates_dir, search_heavy=settings.search_heavy_stack),
+        YamlGeneratorService(
+            prompts_dir=settings.prompts_dir,
+            gemini=gemini,
+            registry_prefix=settings.acr_registry,
+            gateway_ns=settings.gateway_namespace,
+            gateway_name=settings.gateway_name,
+            base_domain=settings.base_domain,
+        ),
     )
     service_registry.register("kubernetes", KubernetesService(settings))
     service_registry.register("observability", ObservabilityService(settings))
