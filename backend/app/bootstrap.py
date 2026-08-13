@@ -3,6 +3,8 @@
 from app.config import Settings, get_settings
 from app.core.registry import service_registry
 from app.services.build.kaniko import KanikoBuildService
+from app.services.deps.postgres import PostgresProvisioner
+from app.services.deps.redis import RedisProvisioner
 from app.services.domain import AnalysisService, PlannerService, YamlGeneratorService
 from app.services.gemini import GeminiClient
 from app.services.github import GitHubService
@@ -40,6 +42,8 @@ def bootstrap(settings: Settings | None = None) -> None:
     k8s = KubernetesService(settings)
     service_registry.register("kubernetes", k8s)
     service_registry.register("kaniko_build", KanikoBuildService(settings, k8s))
+    service_registry.register("deps_postgres", PostgresProvisioner(k8s))
+    service_registry.register("deps_redis", RedisProvisioner(k8s))
     service_registry.register("observability", ObservabilityService(settings))
     service_registry.register("aiops", AIOpsService(settings))
     service_registry.register("scoring", DeploymentScoreService(settings))

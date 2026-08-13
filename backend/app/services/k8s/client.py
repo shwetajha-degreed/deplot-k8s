@@ -151,6 +151,13 @@ class KubernetesService(BaseService):
                     plural="httproutes", name=name, body=manifest,
                     field_manager=_FIELD_MANAGER, force=True,
                 )
+            if kind == "Cluster" and ref.api_version.startswith("postgresql.cnpg.io/"):
+                group, version = ref.api_version.split("/", 1)
+                return self._custom().patch_namespaced_custom_object(
+                    group=group, version=version, namespace=ns,
+                    plural="clusters", name=name, body=manifest,
+                    field_manager=_FIELD_MANAGER, force=True,
+                )
         except ApiException as exc:
             if exc.status == 404:
                 return self._create_sync(manifest)
@@ -194,6 +201,20 @@ class KubernetesService(BaseService):
                 group=group, version=version, namespace=ns,
                 plural="httproutes", body=manifest,
             )
+        if kind == "Cluster" and ref.api_version.startswith("postgresql.cnpg.io/"):
+            group, version = ref.api_version.split("/", 1)
+            try:
+                return self._custom().create_namespaced_custom_object(
+                    group=group, version=version, namespace=ns,
+                    plural="clusters", body=manifest,
+                )
+            except ApiException as exc:
+                if exc.status == 409:
+                    return self._custom().get_namespaced_custom_object(
+                        group=group, version=version, namespace=ns,
+                        plural="clusters", name=name,
+                    )
+                raise
         raise ValueError(f"Unsupported kind for apply: {kind} (name={name})")
 
     # ---------------------------------------------------------- public API ----

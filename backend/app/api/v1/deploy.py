@@ -34,6 +34,26 @@ from app.services.timeline import record_ops_event
 router = APIRouter()
 
 
+def _inject_env_into_deployments(manifests: list[dict], env: dict[str, str]) -> None:
+    if not env:
+        return
+    for manifest in manifests:
+        if not isinstance(manifest, dict) or manifest.get("kind") != "Deployment":
+            continue
+        containers = (
+            (((manifest.get("spec") or {}).get("template") or {}).get("spec") or {}).get(
+                "containers"
+            )
+            or []
+        )
+        for container in containers:
+            existing = container.get("env") or []
+            by_name = {e.get("name"): e for e in existing if isinstance(e, dict)}
+            for key, value in env.items():
+                by_name[key] = {"name": key, "value": value}
+            container["env"] = list(by_name.values())
+
+
 def _fallback_dockerfile(stack, service_name: str) -> str:
     is_frontend = service_name in ("web", "frontend")
     fw = ((stack.backend_framework if not is_frontend else stack.framework) or "").lower()
@@ -307,7 +327,34 @@ async def start_deploy(body: DeployRequest):
                         },
                     )
 
+    deps_env: dict[str, str] = {}
+    if not body.demo_mode and session.stack.database:
+        postgres = get_service("deps_postgres")
+        pg_result = await postgres.provision(namespace, f"{slug}-db")
+        if not pg_result.get("ready"):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "postgres provisioning failed",
+                    "detail": pg_result.get("error"),
+                },
+            )
+        deps_env.update(pg_result["env"])
+    if not body.demo_mode and session.stack.cache:
+        redis = get_service("deps_redis")
+        rd_result = await redis.provision(namespace, f"{slug}-cache")
+        if not rd_result.get("ready"):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "redis provisioning failed",
+                    "detail": rd_result.get("error"),
+                },
+            )
+        deps_env.update(rd_result["env"])
+
     config = await yaml_svc.generate(session.stack, session.repo_url)
+    _inject_env_into_deployments(config.manifests, deps_env)
 
     graph = session.architecture
     if not graph:
