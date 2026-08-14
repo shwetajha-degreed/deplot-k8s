@@ -29,6 +29,7 @@ class SessionIdBody(BaseModel):
 async def analyze_repo(body: AnalyzeRequest):
     session = AnalysisSession(
         repo_url=str(body.repo_url) if body.repo_url else None,
+        github_token=body.github_token,
         status=SessionStatus.ANALYZING,
     )
     session_store.save(session)
@@ -41,7 +42,9 @@ async def analyze_repo(body: AnalyzeRequest):
         files = _demo_files()
     elif body.repo_url:
         try:
-            files = await github.fetch_repo_tree(str(body.repo_url))
+            files = await github.fetch_repo_tree(
+                str(body.repo_url), github_token=body.github_token
+            )
         except Exception as exc:
             raise HTTPException(
                 status_code=422,

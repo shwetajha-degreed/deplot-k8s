@@ -70,6 +70,9 @@ class ValidationReport(BaseModel):
 class AnalyzeRequest(BaseModel):
     repo_url: HttpUrl | None = None
     demo_mode: bool = False
+    # Optional GitHub PAT for private repos. Never logged; persisted on the
+    # session so deploy() can pass it to Kaniko without asking the user again.
+    github_token: str | None = None
 
     @field_validator("repo_url", mode="before")
     @classmethod
@@ -89,6 +92,7 @@ class AnalyzeResponse(BaseModel):
 class AnalysisSession(BaseModel):
     id: UUID = Field(default_factory=uuid4)
     repo_url: str | None = None
+    github_token: str | None = None
     status: SessionStatus = SessionStatus.PENDING
     stack: StackDetection | None = None
     architecture: ArchitectureGraph | None = None

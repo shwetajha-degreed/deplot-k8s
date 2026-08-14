@@ -44,6 +44,7 @@ class KanikoBuildService(BaseService):
         dockerfile: str,
         git_ref: str = "main",
         build_args: dict[str, str] | None = None,
+        github_token: str | None = None,
     ) -> dict[str, Any]:
         # SA must exist before the Job pod schedules; auto-create so callers
         # don't have to pre-provision every namespace.
@@ -53,6 +54,14 @@ class KanikoBuildService(BaseService):
         ref_hash = hashlib.sha1(f"{repo_url}@{git_ref}".encode()).hexdigest()[:8]
         job_name = f"build-{slug}-{service_name}-{ref_hash}"
 
+        # Private repos: store the PAT in a Secret so the git-clone init
+        # container can read it via env var (not baked into argv where
+        # `kubectl describe` would leak it).
+        token_secret_name: str | None = None
+        if github_token:
+            token_secret_name = f"gh-token-{ref_hash}"
+            await self._ensure_github_token_secret(namespace, token_secret_name, github_token)
+
         job = self._build_job_manifest(
             job_name=job_name,
             namespace=namespace,
@@ -61,6 +70,7 @@ class KanikoBuildService(BaseService):
             git_ref=git_ref,
             dockerfile=dockerfile,
             build_args=build_args or {},
+            token_secret_name=token_secret_name,
         )
 
         # Delete any prior Job with the same name so re-runs re-execute cleanly.
@@ -137,6 +147,28 @@ class KanikoBuildService(BaseService):
         }
 
     # --------------------------------------------------------------- helpers --
+
+    async def _ensure_github_token_secret(
+        self, namespace: str, name: str, token: str
+    ) -> None:
+        import base64
+
+        body = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": name,
+                "namespace": namespace,
+                "labels": {"app.kubernetes.io/managed-by": "deplot"},
+            },
+            "type": "Opaque",
+            "data": {"token": base64.b64encode(token.encode()).decode()},
+        }
+        try:
+            await self._k8s._apply(body)
+        except ApiException as exc:
+            if exc.status not in (404, 409, 422):
+                raise
 
     async def _ensure_service_account(self, namespace: str) -> None:
         wi_client_id = self._settings.azure_workload_identity_client_id
@@ -221,19 +253,37 @@ class KanikoBuildService(BaseService):
         git_ref: str,
         dockerfile: str,
         build_args: dict[str, str],
+        token_secret_name: str | None = None,
     ) -> dict[str, Any]:
         # Passing the Dockerfile through argv keeps us from needing a ConfigMap;
         # base64 avoids quoting hazards inside the shell.
         import base64
 
         encoded = base64.b64encode(dockerfile.encode("utf-8")).decode("ascii")
-        clone_cmd = (
-            f"set -eu; "
-            f"git clone --depth 1 --branch {shlex.quote(git_ref)} "
-            f"{shlex.quote(repo_url)} /workspace/src && "
-            f"cp -a /workspace/src/. /workspace/ && "
-            f"echo {shlex.quote(encoded)} | base64 -d > /workspace/Dockerfile.deplot"
-        )
+
+        # For private repos, GITHUB_TOKEN is mounted as an env var from a
+        # Secret and injected into the clone URL as x-access-token password.
+        # Not in argv so `kubectl describe` doesn't leak it.
+        if token_secret_name:
+            clone_url_expr = (
+                'https://x-access-token:${GITHUB_TOKEN}@'
+                + repo_url.replace("https://", "", 1)
+            )
+            clone_cmd = (
+                f"set -eu; "
+                f'git clone --depth 1 --branch {shlex.quote(git_ref)} '
+                f'"{clone_url_expr}" /workspace/src && '
+                f"cp -a /workspace/src/. /workspace/ && "
+                f"echo {shlex.quote(encoded)} | base64 -d > /workspace/Dockerfile.deplot"
+            )
+        else:
+            clone_cmd = (
+                f"set -eu; "
+                f"git clone --depth 1 --branch {shlex.quote(git_ref)} "
+                f"{shlex.quote(repo_url)} /workspace/src && "
+                f"cp -a /workspace/src/. /workspace/ && "
+                f"echo {shlex.quote(encoded)} | base64 -d > /workspace/Dockerfile.deplot"
+            )
 
         # ACR name derives from the FQDN (`dgscucorecr01.azurecr.io` -> `dgscucorecr01`).
         acr_name = self._settings.acr_registry.split(".")[0]
@@ -288,6 +338,21 @@ class KanikoBuildService(BaseService):
                                 "name": "git-clone",
                                 "image": _GIT_IMAGE,
                                 "command": ["/bin/sh", "-c", clone_cmd],
+                                "env": (
+                                    [
+                                        {
+                                            "name": "GITHUB_TOKEN",
+                                            "valueFrom": {
+                                                "secretKeyRef": {
+                                                    "name": token_secret_name,
+                                                    "key": "token",
+                                                }
+                                            },
+                                        }
+                                    ]
+                                    if token_secret_name
+                                    else []
+                                ),
                                 "volumeMounts": [
                                     {"name": "workspace", "mountPath": "/workspace"}
                                 ],

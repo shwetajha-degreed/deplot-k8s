@@ -11,20 +11,27 @@ class GitHubService(BaseService):
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
-        headers = {}
-        if settings.github_token:
-            headers["Authorization"] = f"Bearer {settings.github_token}"
-        self._client = httpx.AsyncClient(timeout=30.0, headers=headers)
 
-    async def fetch_repo_tree(self, repo_url: str) -> dict[str, str]:
-        """Return path -> content snippet map for key files (MVP: demo + API tree)."""
+    def _token(self, override: str | None) -> str | None:
+        # Per-request token wins over the platform-wide default.
+        return override or (self._settings.github_token or None)
+
+    async def fetch_repo_tree(
+        self, repo_url: str, github_token: str | None = None
+    ) -> dict[str, str]:
+        """Return path -> content snippet map for key files.
+
+        github_token: optional GitHub PAT for private repos; takes precedence
+        over settings.github_token.
+        """
         owner, repo = self._parse_github_url(repo_url)
         api_base = f"https://api.github.com/repos/{owner}/{repo}"
         headers = {"Accept": "application/vnd.github+json"}
+        token = self._token(github_token)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-            if self._settings.github_token:
-                client.headers["Authorization"] = f"Bearer {self._settings.github_token}"
             resp = await client.get(f"{api_base}/git/trees/main?recursive=1")
             if resp.status_code == 404:
                 resp = await client.get(f"{api_base}/git/trees/master?recursive=1")
@@ -45,12 +52,19 @@ class GitHubService(BaseService):
             if entry.get("type") != "blob":
                 continue
             if any(k in path for k in key_patterns):
-                files[path] = await self._fetch_raw(owner, repo, path)
+                files[path] = await self._fetch_raw(owner, repo, path, token)
         return files
 
-    async def _fetch_raw(self, owner: str, repo: str, path: str) -> str:
+    async def _fetch_raw(
+        self, owner: str, repo: str, path: str, token: str | None = None
+    ) -> str:
+        # raw.githubusercontent.com returns 404 for private repos when
+        # unauthenticated; the token unlocks them.
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{path}"
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
             resp = await client.get(url)
             if resp.status_code == 404:
                 url = url.replace("/main/", "/master/")

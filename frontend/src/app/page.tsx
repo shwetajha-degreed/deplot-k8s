@@ -94,6 +94,7 @@ export default function HomePage() {
   const [step, setStep] = useState<WizardStepId>("connect");
   const [demoMode, setDemoMode] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
+  const [githubToken, setGithubToken] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
   const [stack, setStack] = useState<Stack>(null);
@@ -159,7 +160,8 @@ export default function HomePage() {
     try {
       const cleaned = demoMode ? null : (repoUrl ? normalizeRepoUrl(repoUrl) : null);
       if (cleaned) setRepoUrl(cleaned);
-      const res = await api.analyze(cleaned, demoMode);
+      const token = githubToken.trim() || undefined;
+      const res = await api.analyze(cleaned, demoMode, token);
       setSessionId(res.session_id);
       setStack(res.stack);
       advanceToStep("analyze");
@@ -168,7 +170,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [demoMode, repoUrl, advanceToStep]);
+  }, [demoMode, repoUrl, githubToken, advanceToStep]);
 
   const loadArchitecture = useCallback(async () => {
     if (!sessionId) return;
@@ -533,6 +535,24 @@ export default function HomePage() {
                     <Button onClick={runAnalyze} loading={loading} className="shrink-0">
                       Analyze Repository
                     </Button>
+                  </div>
+                  <div className="mt-4">
+                    <label className="text-xs uppercase tracking-wider text-zinc-500">
+                      GitHub token (optional — required for private repos)
+                    </label>
+                    <input
+                      type="password"
+                      className="mt-2 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-40"
+                      placeholder="ghp_… or github_pat_…"
+                      value={githubToken}
+                      onChange={(e) => setGithubToken(e.target.value)}
+                      disabled={demoMode}
+                      autoComplete="off"
+                    />
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Needs <code>repo:read</code> (or <code>contents:read</code> for a fine-grained
+                      token). Not stored — persists only in memory for this deploy.
+                    </p>
                   </div>
                   {demoMode && (
                     <p className="mt-4 text-xs text-zinc-500">

@@ -45,10 +45,14 @@ export function normalizeRepoUrl(url: string): string {
 export const api = {
   health: () => request<{ status: string }>("/health"),
 
-  analyze: (repoUrl: string | null, demoMode: boolean) =>
+  analyze: (repoUrl: string | null, demoMode: boolean, githubToken?: string) =>
     request<{ session_id: string; stack: Record<string, unknown> }>("/analyze", {
       method: "POST",
-      body: JSON.stringify({ repo_url: repoUrl, demo_mode: demoMode }),
+      body: JSON.stringify({
+        repo_url: repoUrl,
+        demo_mode: demoMode,
+        github_token: githubToken || undefined,
+      }),
     }),
 
   architecture: (sessionId: string) =>

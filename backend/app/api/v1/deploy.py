@@ -449,6 +449,7 @@ async def _execute_deploy_pipeline(
                         repo_url=session.repo_url,
                         dockerfile=dockerfile,
                         build_args=svc_build_args,
+                        github_token=session.github_token,
                     )
                 )
             submissions = await asyncio.gather(*build_coros)
