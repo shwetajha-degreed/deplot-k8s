@@ -58,8 +58,11 @@ class Namespace:
 class ResourceQuota:
     name: str
     namespace: str
-    cpu: str = "4"
-    memory: str = "4Gi"
+    # Kaniko builds request 2 Gi + limit 3 Gi each; a repo with both an api
+    # and a frontend needs headroom to run both concurrently without the
+    # second pod getting FailedCreate.
+    cpu: str = "8"
+    memory: str = "12Gi"
     storage: str = "20Gi"
 
     def to_dict(self) -> ResourceDict:

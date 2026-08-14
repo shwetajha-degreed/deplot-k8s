@@ -112,12 +112,19 @@ class KanikoBuildService(BaseService):
                     "job_name": job_name,
                     "logs": await self._tail_job_logs(namespace, job_name),
                 }
-            if (status.failed or 0) >= 1:
-                return {
-                    "status": "failed",
-                    "job_name": job_name,
-                    "logs": await self._tail_job_logs(namespace, job_name),
-                }
+            # status.failed counts individual POD failures; when backoffLimit
+            # allows retries (or when the Job is throttled by a ResourceQuota
+            # and pods get FailedCreate), that counter climbs while the Job
+            # itself is still healthy. Only treat the JOB as failed when a
+            # Failed condition is on the Job — that's what backoffLimit
+            # exceeded produces.
+            for cond in status.conditions or []:
+                if getattr(cond, "type", "") == "Failed" and getattr(cond, "status", "") == "True":
+                    return {
+                        "status": "failed",
+                        "job_name": job_name,
+                        "logs": await self._tail_job_logs(namespace, job_name),
+                    }
             await asyncio.sleep(3.0)
 
         return {
