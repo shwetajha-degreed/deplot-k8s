@@ -38,6 +38,64 @@ from app.services.timeline import record_ops_event
 router = APIRouter()
 
 
+def _extract_expose_port(dockerfile: str) -> int | None:
+    # Parse `EXPOSE <port>` from a Dockerfile so downstream manifests
+    # bind/probe the actual port the container listens on (not our
+    # hardcoded 8000/3000 defaults).
+    import re
+
+    for line in dockerfile.splitlines():
+        m = re.match(r"^\s*EXPOSE\s+(\d+)", line, re.IGNORECASE)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                pass
+    return None
+
+
+def _override_service_port(manifests: list[dict], service_name: str, port: int) -> None:
+    # Rewrites Deployment container port + probe + Service target so
+    # everything targets the Dockerfile's actual EXPOSE port.
+    for m in manifests:
+        if not isinstance(m, dict):
+            continue
+        meta_name = ((m.get("metadata") or {}).get("name") or "")
+        if meta_name != service_name:
+            continue
+        kind = m.get("kind")
+        if kind == "Deployment":
+            containers = (
+                (((m.get("spec") or {}).get("template") or {}).get("spec") or {}).get(
+                    "containers"
+                )
+                or []
+            )
+            for c in containers:
+                for p in c.get("ports") or []:
+                    p["containerPort"] = port
+                for probe_key in ("readinessProbe", "livenessProbe"):
+                    probe = c.get(probe_key)
+                    if not probe:
+                        continue
+                    if "tcpSocket" in probe:
+                        probe["tcpSocket"]["port"] = port
+                    if "httpGet" in probe:
+                        probe["httpGet"]["port"] = port
+                for env in c.get("env") or []:
+                    if env.get("name") == "PORT":
+                        env["value"] = str(port)
+        elif kind == "Service":
+            for p in ((m.get("spec") or {}).get("ports") or []):
+                p["port"] = port
+                p["targetPort"] = port
+        elif kind == "HTTPRoute":
+            for rule in ((m.get("spec") or {}).get("rules") or []):
+                for ref in rule.get("backendRefs") or []:
+                    if ref.get("name") == service_name:
+                        ref["port"] = port
+
+
 def _inject_env_into_deployments(manifests: list[dict], env: dict[str, str]) -> None:
     if not env:
         return
@@ -429,6 +487,9 @@ async def _execute_deploy_pipeline(
 
             github = get_service("github")
             build_coros = []
+            # Record the EXPOSE port declared by each service's Dockerfile so
+            # we can rewrite manifests to bind/probe the correct port.
+            svc_ports: dict[str, int] = {}
             for svc_name in services:
                 # Priority: repo's own Dockerfile > Gemini-generated > fallback.
                 # A committed Dockerfile is authoritative — actually tested by
@@ -455,9 +516,20 @@ async def _execute_deploy_pipeline(
                     )
                 if not dockerfile:
                     dockerfile = _fallback_dockerfile(session.stack, svc_name)
+                port = _extract_expose_port(dockerfile)
+                if port:
+                    svc_ports[svc_name] = port
                 svc_build_args: dict[str, str] = {}
-                if svc_name in ("frontend", "web") and api_url:
-                    svc_build_args["NEXT_PUBLIC_API_URL"] = api_url
+                if svc_name in ("frontend", "web"):
+                    if api_url:
+                        svc_build_args["NEXT_PUBLIC_API_URL"] = api_url
+                    # BACKEND_URL is a common build-arg name for
+                    # server-side proxying to the api Service (e.g.
+                    # Next.js next.config rewrites). Set it based on
+                    # the detected api EXPOSE port. Dockerfiles that
+                    # don't declare this ARG will simply ignore it.
+                    api_port = svc_ports.get("api", 8000)
+                    svc_build_args["BACKEND_URL"] = f"http://api:{api_port}"
                 build_coros.append(
                     kaniko_svc.build_image(
                         namespace=settings.build_namespace,
@@ -532,6 +604,10 @@ async def _execute_deploy_pipeline(
 
     config = await yaml_svc.generate(session.stack, session.repo_url)
     _inject_env_into_deployments(config.manifests, deps_env)
+    # Rewrite ports to match the actual EXPOSE from each service's Dockerfile
+    # (defaults would leave uvicorn on 8088 unreachable by an 8000 probe).
+    for _svc_name, _port in svc_ports.items():
+        _override_service_port(config.manifests, _svc_name, _port)
 
     graph = session.architecture
     if not graph:

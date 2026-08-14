@@ -79,9 +79,17 @@ class GitHubService(BaseService):
         candidates: list[str] = []
         if monorepo_path and monorepo_path not in (".", ""):
             candidates.append(f"{monorepo_path.strip('/')}/Dockerfile")
+        # Fallback monorepo layouts our stack detector doesn't always populate:
+        if service_name in ("api", "backend"):
+            candidates.extend(["backend/Dockerfile", "api/Dockerfile"])
+        elif service_name in ("frontend", "web"):
+            candidates.extend(["frontend/Dockerfile", "web/Dockerfile"])
         if service_name:
             candidates.append(f"Dockerfile.{service_name}")
         candidates.append("Dockerfile")
+        # De-dup while preserving order.
+        seen: set[str] = set()
+        candidates = [c for c in candidates if not (c in seen or seen.add(c))]
 
         for path in candidates:
             content = await self._fetch_raw(owner, repo, path, token)
