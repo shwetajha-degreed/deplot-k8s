@@ -99,7 +99,7 @@ log "Rotating Redis password"
 REDIS_PW="$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))')"
 REDIS_URL="redis://:${REDIS_PW}@deplot-redis:6379/0"
 kubectl -n "${NAMESPACE}" patch secret deplot-redis-auth --type=merge \
-  -p "$(python3 -c 'import json,os;print(json.dumps({"stringData":{"password":os.environ["P"],"REDIS_URL":os.environ["U"]}}))' P="${REDIS_PW}" U="${REDIS_URL}")"
+  -p "$(P="${REDIS_PW}" U="${REDIS_URL}" python3 -c 'import json,os;print(json.dumps({"stringData":{"password":os.environ["P"],"REDIS_URL":os.environ["U"]}}))')"
 kubectl -n "${NAMESPACE}" rollout restart deployment/deplot-redis || true
 
 log "Waiting for CNPG Cluster deplot-db to become ready (up to 5m)"
@@ -117,7 +117,7 @@ RAW_URI="$(kubectl -n "${NAMESPACE}" get secret deplot-db-app -o jsonpath='{.dat
 ASYNC_URI="${RAW_URI/postgresql:\/\//postgresql+asyncpg://}"
 ASYNC_URI="${ASYNC_URI/postgres:\/\//postgresql+asyncpg://}"
 kubectl -n "${NAMESPACE}" patch secret deplot-runtime-secrets --type=merge \
-  -p "$(python3 -c 'import json,os;print(json.dumps({"stringData":{"DATABASE_URL":os.environ["U"]}}))' U="${ASYNC_URI}")"
+  -p "$(U="${ASYNC_URI}" python3 -c 'import json,os;print(json.dumps({"stringData":{"DATABASE_URL":os.environ["U"]}}))')"
 
 log "Restarting backend & frontend to pick up new images/secrets"
 kubectl -n "${NAMESPACE}" rollout restart deployment/deplot-backend
