@@ -304,12 +304,15 @@ export default function HomePage() {
         return null;
       }
 
-      for (let attempt = 0; attempt < 20; attempt++) {
+      // Poll for up to ~12 min at 3s intervals. Covers:
+      //   builds (~2m cached, ~5m fresh) + deps provision (~2m) +
+      //   K8s apply + heal-loop 60s stable hold before SUCCEEDED.
+      for (let attempt = 0; attempt < 240; attempt++) {
         const st = await api.getDeploymentStatus(id);
         setDeployStatus(st);
         finalStatus = st;
         if (st.status === "succeeded" || st.status === "failed") break;
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => setTimeout(r, 3000));
       }
 
       const failed = finalStatus?.status === "failed";
@@ -656,7 +659,7 @@ export default function HomePage() {
                 )}
                 <div className="mt-6">
                   <Button onClick={runDeploy} loading={loading} disabled={isPreviewStep}>
-                    Deploy to Zerops
+                    Deploy to Kubernetes
                   </Button>
                 </div>
               </StepPanel>
@@ -665,7 +668,7 @@ export default function HomePage() {
             {step === "deploy" && (
               <StepPanel
                 key="deploy"
-                title="Deploying to Zerops"
+                title="Deploying to Kubernetes"
                 subtitle="Real-time pipeline status from build to readiness check."
                 badge="Deployment Engine"
               >
@@ -782,7 +785,7 @@ export default function HomePage() {
                 {deployStatus && !demoMode && (
                   <Card className="mt-4">
                     <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                      Zerops deployment
+                      Kubernetes deployment
                     </p>
                     <p className="mt-2 text-sm text-zinc-300">
                       Pipeline: {deployStatus.pipeline_state ?? "—"} · Status:{" "}
