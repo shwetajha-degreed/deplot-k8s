@@ -10,14 +10,18 @@ from app.agents.orchestrator import AgentContext
 from app.api.deps import get_orchestrator
 from app.bootstrap import get_service
 from app.config import get_settings
+from typing import Any
+
 from app.models.deployment import (
     DeployRequest,
     DeployResponse,
     Deployment,
+    DeploymentPlan,
     DeploymentScore,
     DeploymentStage,
     DeploymentStatus,
     DeploymentStatusResponse,
+    K8sConfig,
     RetryDeployRequest,
 )
 from app.services.deploy_failure import (
@@ -283,11 +287,93 @@ async def _run_live_import(
         )
 
 
-@router.post("/deploy", response_model=DeployResponse)
+@router.post("/deploy", response_model=DeployResponse, status_code=202)
 async def start_deploy(body: DeployRequest):
     session = session_store.get(body.session_id)
     if not session or not session.stack:
         raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.repo_url:
+        session.stack.repo_slug = repo_slug_from_url(session.repo_url)
+
+    slug = session.stack.repo_slug or repo_slug_from_url(session.repo_url or "app")
+    namespace = f"deploy-{slug}"
+
+    # Create the Deployment record synchronously so the caller has an ID to
+    # poll. The full pipeline (build + deps + apply) is fired as a background
+    # task so we can return 202 in <1s. Without this, Envoy's 15s upstream
+    # timeout closed the wizard's connection mid-deploy.
+    deployment = Deployment(
+        session_id=body.session_id,
+        config=K8sConfig(namespace=namespace),
+        plan=DeploymentPlan(),
+        demo_mode=body.demo_mode,
+        repo_slug=slug,
+        namespace=namespace,
+        service_hostnames=hostnames_for_slug(slug),
+        status=DeploymentStatus.PENDING,
+        stage=DeploymentStage.QUEUED,
+    )
+    deployment_store.save(deployment)
+    record_ops_event(
+        deployment.id,
+        source="deploy",
+        event_type="queued",
+        message=f"Deploy queued for {slug} ({'demo' if body.demo_mode else 'live'})",
+        service="platform",
+    )
+    asyncio.create_task(_run_deploy_pipeline_safe(deployment.id, body.session_id, body))
+    return DeployResponse(
+        deployment_id=deployment.id,
+        status=deployment.status,
+        stage=deployment.stage,
+    )
+
+
+async def _run_deploy_pipeline_safe(
+    deployment_id: UUID, session_id: UUID, body: DeployRequest
+) -> None:
+    try:
+        await _execute_deploy_pipeline(deployment_id, session_id, body)
+    except HTTPException as exc:
+        _mark_pipeline_failed(deployment_id, exc.detail)
+    except Exception as exc:
+        _mark_pipeline_failed(deployment_id, f"unexpected: {exc!s}"[:2000])
+
+
+def _mark_pipeline_failed(deployment_id: UUID, detail: Any) -> None:
+    d = deployment_store.get(deployment_id)
+    if not d:
+        return
+    d.status = DeploymentStatus.FAILED
+    d.stage = DeploymentStage.FAILED
+    summary = str(detail)[:500] if detail else "deploy failed"
+    d.failure_summary = summary
+    d.k8s_message = str(detail)[:2000] if detail else None
+    deployment_store.save(d)
+    record_ops_event(
+        deployment_id,
+        source="deploy",
+        event_type="pipeline_failed",
+        message=summary,
+        service="platform",
+    )
+
+
+async def _execute_deploy_pipeline(
+    deployment_id: UUID, session_id: UUID, body: DeployRequest
+) -> None:
+    session = session_store.get(session_id)
+    if not session or not session.stack:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    deployment = deployment_store.get(deployment_id)
+    if not deployment:
+        return
+
+    deployment.status = DeploymentStatus.IN_PROGRESS
+    deployment.stage = DeploymentStage.BUILDING
+    deployment_store.save(deployment)
 
     yaml_svc = get_service("yaml_generator")
     k8s_svc = get_service("kubernetes")
@@ -296,12 +382,9 @@ async def start_deploy(body: DeployRequest):
     gemini = get_service("gemini")
     kaniko_svc = get_service("kaniko_build")
 
-    if session.repo_url:
-        session.stack.repo_slug = repo_slug_from_url(session.repo_url)
-
     settings = get_settings()
-    slug = session.stack.repo_slug or repo_slug_from_url(session.repo_url)
-    namespace = f"deploy-{slug}"
+    slug = deployment.repo_slug or "app"
+    namespace = deployment.namespace
 
     if not body.demo_mode and session.repo_url:
         services: list[str] = []
@@ -388,6 +471,9 @@ async def start_deploy(body: DeployRequest):
                         },
                     )
 
+    deployment.stage = DeploymentStage.PROVISIONING_DB
+    deployment_store.save(deployment)
+
     deps_env: dict[str, str] = {}
     if not body.demo_mode and session.stack.database:
         postgres = get_service("deps_postgres")
@@ -440,21 +526,18 @@ async def start_deploy(body: DeployRequest):
     plan = planner.build_plan(session.stack, graph)
     namespace = config.namespace or namespace
 
-    deployment = Deployment(
-        session_id=body.session_id,
-        config=config,
-        plan=plan,
-        demo_mode=body.demo_mode,
-        repo_slug=slug,
-        namespace=namespace,
-        service_hostnames=hostnames_for_slug(slug),
-    )
+    # Fill in the config/plan on the pre-created Deployment record so
+    # /deployment/{id}/status reflects real state as the pipeline advances.
+    deployment.config = config
+    deployment.plan = plan
+    deployment.namespace = namespace
+    deployment.stage = DeploymentStage.READINESS_CHECK
     deployment_store.save(deployment)
     record_ops_event(
         deployment.id,
         source="deploy",
         event_type="started",
-        message=f"Deploy started for {slug} ({'demo' if body.demo_mode else 'live'})",
+        message=f"Deploy applying for {slug} ({'demo' if body.demo_mode else 'live'})",
         service="platform",
     )
 
@@ -471,23 +554,18 @@ async def start_deploy(body: DeployRequest):
             demo_mode=True,
             repo_slug=slug,
         )
-    else:
-        await _run_live_import(
-            deployment,
-            session=session,
-            config=config,
-            k8s_svc=k8s_svc,
-            aiops=aiops,
-            namespace=namespace,
-            slug=slug,
-        )
-        deployment_store.save(deployment)
+        return
 
-    return DeployResponse(
-        deployment_id=deployment.id,
-        status=deployment.status,
-        stage=deployment.stage,
+    await _run_live_import(
+        deployment,
+        session=session,
+        config=config,
+        k8s_svc=k8s_svc,
+        aiops=aiops,
+        namespace=namespace,
+        slug=slug,
     )
+    deployment_store.save(deployment)
 
 
 @router.get("/deployment/{deployment_id}", response_model=Deployment)
