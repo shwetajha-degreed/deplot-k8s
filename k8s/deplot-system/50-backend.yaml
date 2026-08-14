@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deplot-backend
+  namespace: deplot-system
+  labels:
+    app: deplot-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: deplot-backend
+  template:
+    metadata:
+      labels:
+        app: deplot-backend
+        # Required for the workload-identity mutating webhook to inject the token.
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: deplot
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: deplot-backend
+          image: dgscucorecr01.azurecr.io/deplot-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: KUBECONFIG_PATH
+              value: ""
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: deplot-config
+                  key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+            - name: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: deplot-config
+                  key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: deplot-runtime-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: deplot-redis-auth
+                  key: REDIS_URL
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: deplot-secrets
+                  key: GEMINI_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: deplot-secrets
+                  key: GITHUB_TOKEN
+                  optional: true
+          envFrom:
+            - configMapRef:
+                name: deplot-config
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deplot-backend
+  namespace: deplot-system
+spec:
+  type: ClusterIP
+  selector:
+    app: deplot-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: deplot-backend
+  namespace: deplot-system
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: internal-gateway
+      namespace: internal-gateway
+      sectionName: https-degreed-com
+  hostnames:
+    - deplot-api.internal.sbx.degreed.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: deplot-backend
+          port: 8000

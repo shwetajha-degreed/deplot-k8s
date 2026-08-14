@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: deplot-redis-auth
+  namespace: deplot-system
+type: Opaque
+stringData:
+  # Populated (rotated) by scripts/bootstrap-deplot.sh on first run.
+  password: "CHANGE_ME"
+  REDIS_URL: "redis://:CHANGE_ME@deplot-redis:6379/0"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deplot-redis-data
+  namespace: deplot-system
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deplot-redis
+  namespace: deplot-system
+spec:
+  type: ClusterIP
+  selector:
+    app: deplot-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deplot-redis
+  namespace: deplot-system
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: deplot-redis
+  template:
+    metadata:
+      labels:
+        app: deplot-redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args:
+            - /bin/sh
+            - -c
+            - exec redis-server --requirepass "$(cat /etc/redis/password)" --appendonly yes --dir /data
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: auth
+              mountPath: /etc/redis
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: deplot-redis-data
+        - name: auth
+          secret:
+            secretName: deplot-redis-auth
+            items:
+              - key: password
+                path: password

@@ -1,0 +1,23 @@
+# CNPG operator generates Secret "deplot-db-app" with keys username, password,
+# uri, jdbc-uri, host, port, dbname. The bootstrap script rewrites `uri` from
+# postgres:// -> postgresql+asyncpg:// into `deplot-runtime-secrets`.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: deplot-db
+  namespace: deplot-system
+spec:
+  instances: 1
+  storage:
+    size: 5Gi
+  bootstrap:
+    initdb:
+      database: deplot
+      owner: deplot
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
