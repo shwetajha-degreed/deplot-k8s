@@ -133,9 +133,29 @@ class DefaultDenyNetworkPolicy:
 
     namespace: str
     gateway_namespace: str = "envoy-gateway-system"
+    operator_namespaces: tuple[str, ...] = ("cnpg-system",)
     name: str = "default-deny-ingress"
 
     def to_dict(self) -> ResourceDict:
+        # Allow gateway + operator namespaces (e.g. CNPG needs to reach
+        # Postgres pods for status checks) + same-namespace pods.
+        sources: list[dict[str, Any]] = [
+            {
+                "namespaceSelector": {
+                    "matchLabels": {"kubernetes.io/metadata.name": self.gateway_namespace}
+                }
+            }
+        ]
+        for op_ns in self.operator_namespaces:
+            sources.append(
+                {
+                    "namespaceSelector": {
+                        "matchLabels": {"kubernetes.io/metadata.name": op_ns}
+                    }
+                }
+            )
+        sources.append({"podSelector": {}})
+
         return {
             "apiVersion": "networking.k8s.io/v1",
             "kind": "NetworkPolicy",
@@ -143,20 +163,7 @@ class DefaultDenyNetworkPolicy:
             "spec": {
                 "podSelector": {},
                 "policyTypes": ["Ingress", "Egress"],
-                "ingress": [
-                    {
-                        "from": [
-                            {
-                                "namespaceSelector": {
-                                    "matchLabels": {
-                                        "kubernetes.io/metadata.name": self.gateway_namespace,
-                                    }
-                                }
-                            },
-                            {"podSelector": {}},
-                        ]
-                    }
-                ],
+                "ingress": [{"from": sources}],
                 "egress": [{}],
             },
         }
