@@ -427,15 +427,32 @@ async def _execute_deploy_pipeline(
                 else ""
             )
 
+            github = get_service("github")
             build_coros = []
             for svc_name in services:
-                dockerfile = await gemini.generate_dockerfile(
-                    slug=slug,
-                    repo_url=session.repo_url,
-                    service_name=svc_name,
-                    stack_summary=stack_summary,
-                    prompt_template=prompt_template,
+                # Priority: repo's own Dockerfile > Gemini-generated > fallback.
+                # A committed Dockerfile is authoritative — actually tested by
+                # the team and covers stacks (Go, .NET, Ruby, Java, ...) our
+                # fallback doesn't know.
+                monorepo_path = (
+                    session.stack.monorepo_frontend_path
+                    if svc_name in ("frontend", "web")
+                    else session.stack.monorepo_backend_path
                 )
+                dockerfile = await github.fetch_dockerfile(
+                    session.repo_url,
+                    service_name=svc_name,
+                    monorepo_path=monorepo_path,
+                    github_token=session.github_token,
+                )
+                if not dockerfile:
+                    dockerfile = await gemini.generate_dockerfile(
+                        slug=slug,
+                        repo_url=session.repo_url,
+                        service_name=svc_name,
+                        stack_summary=stack_summary,
+                        prompt_template=prompt_template,
+                    )
                 if not dockerfile:
                     dockerfile = _fallback_dockerfile(session.stack, svc_name)
                 svc_build_args: dict[str, str] = {}

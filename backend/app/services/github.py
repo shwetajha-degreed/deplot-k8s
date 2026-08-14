@@ -55,6 +55,40 @@ class GitHubService(BaseService):
                 files[path] = await self._fetch_raw(owner, repo, path, token)
         return files
 
+    async def fetch_dockerfile(
+        self,
+        repo_url: str,
+        service_name: str,
+        monorepo_path: str | None = None,
+        github_token: str | None = None,
+    ) -> str | None:
+        """Find a Dockerfile in the repo for this service, in priority order.
+
+        1. {monorepo_path}/Dockerfile  (e.g. backend/Dockerfile)
+        2. Dockerfile.{service_name}   (e.g. Dockerfile.api at repo root)
+        3. Dockerfile                  (repo root)
+
+        Returns the raw content, or None if no match. The team's own
+        Dockerfile is preferred over Gemini-generated or fallback ones —
+        it's authoritative, was actually tested, and covers stacks our
+        fallback doesn't know (Go, .NET, Ruby, Java, etc.).
+        """
+        owner, repo = self._parse_github_url(repo_url)
+        token = self._token(github_token)
+
+        candidates: list[str] = []
+        if monorepo_path and monorepo_path not in (".", ""):
+            candidates.append(f"{monorepo_path.strip('/')}/Dockerfile")
+        if service_name:
+            candidates.append(f"Dockerfile.{service_name}")
+        candidates.append("Dockerfile")
+
+        for path in candidates:
+            content = await self._fetch_raw(owner, repo, path, token)
+            if content and "FROM " in content:
+                return content
+        return None
+
     async def _fetch_raw(
         self, owner: str, repo: str, path: str, token: str | None = None
     ) -> str:
