@@ -159,7 +159,7 @@ export function IncidentPanel({
 
       {resolved && (
         <p className="mt-4 text-sm text-emerald-400">
-          ✓ Fix applied on Zerops — env patched, redeployed, readiness passing.
+          ✓ Fix applied — env patched, Deployment rolled, readiness passing.
         </p>
       )}
     </Card>

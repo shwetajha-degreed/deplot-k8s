@@ -58,7 +58,7 @@ export const api = {
     }),
 
   generateYaml: (sessionId: string) =>
-    request<{ zerops_yaml: string; import_yaml: string }>("/generate-yaml", {
+    request<{ manifests: unknown[]; namespace: string; services?: string[] }>("/generate-yaml", {
       method: "POST",
       body: JSON.stringify({ session_id: sessionId }),
     }),

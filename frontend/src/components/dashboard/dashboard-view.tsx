@@ -59,7 +59,7 @@ export function DashboardView({ data }: { data: DashboardSummary }) {
             Platform dashboard
           </h1>
           <p className="mt-2 max-w-xl text-base text-zinc-400">
-            Ship, watch, and heal — all your Zerops deployments in one command center.
+            Ship, watch, and heal — all your Kubernetes deployments in one command center.
           </p>
           {data.total_deployments === 0 && data.connected_repos === 0 && (
             <p className="mt-2 text-xs text-zinc-500">

@@ -17,7 +17,7 @@ export interface DashboardSummary {
   active_deployments: number;
   success_rate_percent: number;
   environments: number;
-  zerops_services: number;
+  k8s_services: number;
   services_healthy: string;
   services_healthy_count: number;
   services_total: number;
@@ -39,17 +39,17 @@ export interface DashboardSummary {
 export const PHASE2_FEATURES = [
   {
     title: "CPU & memory time-series",
-    description: "Live charts per Zerops service with historical rollups",
+    description: "Live charts per K8s workload with historical rollups",
     icon: "📈",
   },
   {
-    title: "Multi-project Zerops",
-    description: "Link and switch between multiple Zerops projects",
+    title: "Multi-cluster support",
+    description: "Link and switch between multiple AKS clusters",
     icon: "🔗",
   },
   {
     title: "Build log streaming",
-    description: "Real-time deploy logs from Zerops build pipeline",
+    description: "Real-time deploy logs from the Kaniko build pipeline",
     icon: "📜",
   },
   {
@@ -58,8 +58,8 @@ export const PHASE2_FEATURES = [
     icon: "👥",
   },
   {
-    title: "Zerops billing sync",
-    description: "Actual spend vs estimates from Zerops API",
+    title: "Cost & usage insights",
+    description: "Estimated cluster spend by namespace and workload",
     icon: "💳",
   },
   {
@@ -75,7 +75,7 @@ export const KPI_METRICS = [
   { key: "active_deployments", label: "Active deployments", icon: "◉" },
   { key: "success_rate_percent", label: "Success rate", icon: "✓", suffix: "%" },
   { key: "environments", label: "Environments", icon: "◎" },
-  { key: "zerops_services", label: "Zerops services", icon: "⬡" },
+  { key: "k8s_services", label: "K8s workloads", icon: "⬡" },
   { key: "services_healthy", label: "Services healthy", icon: "💚" },
   { key: "open_incidents", label: "Open incidents", icon: "⚡" },
   { key: "critical_incidents", label: "Critical incidents", icon: "🔴" },

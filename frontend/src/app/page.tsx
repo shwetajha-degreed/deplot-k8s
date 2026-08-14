@@ -41,14 +41,14 @@ const DEMO_PLAN = {
   estimated_cost_usd_month: 12.68,
   estimated_build_minutes: 15,
   services: [{ name: "frontend" }, { name: "api" }, { name: "database" }, { name: "cache" }, { name: "search" }],
-  pricing_source: "zerops_official_rates",
+  pricing_source: "k8s_estimated",
   pricing_note:
-    "Baseline NON_HA shared-CPU resources using Zerops published rates (CPU, RAM, disk). Actual spend varies with autoscaling and usage.",
+    "Baseline single-replica resource requests on AKS shared node pool. Actual spend varies with autoscaling and per-namespace usage.",
 };
 
 const DEMO_YAML = {
-  import: `# Preview — Import YAML\nproject:\n  name: demo-app\nservices:\n  - hostname: postgres\n    type: postgresql@16\n  - hostname: api\n    type: nodejs@22`,
-  zerops: `# Preview — zerops.yaml\nrun:\n  start: npm start\n  ports:\n    - port: 3000\n      httpSupport: true\nreadiness:\n  path: /\n  statusCode: 200`,
+  import: `# Preview — Namespace scaffolding\napiVersion: v1\nkind: Namespace\nmetadata:\n  name: deploy-demo\n  labels:\n    app.kubernetes.io/part-of: demo-app`,
+  workloads: `# Preview — Deployment\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: api\n  namespace: deploy-demo\nspec:\n  replicas: 1\n  template:\n    spec:\n      containers:\n        - name: api\n          image: dgscucorecr01.azurecr.io/demo-api:latest\n          ports: [{containerPort: 8000}]`,
 };
 
 const DEMO_SCORE = {
@@ -59,7 +59,7 @@ const DEMO_SCORE = {
   observability: 7.8,
   overall: 8.8,
   recommendations: [
-    "Enable Zerops subdomain access on web and api after import",
+    "Attach HTTPRoute for web and api to the internal gateway after apply",
     "Verify Typesense and Valkey hostnames in API env",
   ],
 };
@@ -75,11 +75,11 @@ const DEMO_INCIDENT: IncidentData = {
     reason: "DATABASE_URL environment variable is missing",
     impact: "Backend cannot connect to PostgreSQL",
     confidence: 0.96,
-    suggested_fix: "Set DATABASE_URL in Zerops api service environment variables",
+    suggested_fix: "Set DATABASE_URL on the api Deployment env or via a Secret",
     log_summary: "Error: P1001 — Can't reach database server at postgres:5432",
   },
   runbook: [
-    "Open Zerops project → api service → Environment variables",
+    "kubectl edit deployment/api -n deploy-{slug}  →  spec.template.spec.containers[0].env",
     "Add DATABASE_URL referencing the postgres service",
     "Redeploy the api service and wait for readiness check",
   ],
@@ -97,7 +97,7 @@ export default function HomePage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
   const [stack, setStack] = useState<Stack>(null);
-  const [yaml, setYaml] = useState<{ zerops: string; import: string } | null>(null);
+  const [yaml, setYaml] = useState<{ workloads: string; import: string } | null>(null);
   const [plan, setPlan] = useState<Record<string, unknown> | null>(null);
   const [incidents, setIncidents] = useState<IncidentData[]>([]);
   const [architecture, setArchitecture] = useState<{ nodes: ArchNode[]; edges: ArchEdge[] } | null>(
@@ -281,7 +281,21 @@ export default function HomePage() {
     setError(null);
     try {
       const data = await api.generateYaml(sessionId);
-      setYaml({ zerops: data.zerops_yaml, import: data.import_yaml });
+      // Backend returns K8sConfig { manifests, namespace, services }. Render
+      // the namespace/services summary as the "import" pane and pretty-print
+      // the manifest list as the "workloads" pane. Full YAML rendering is a
+      // future improvement; JSON preview keeps the UX honest for now.
+      const services = data.services ?? [];
+      const importPreview =
+        `# Namespace scaffolding\nnamespace: ${data.namespace}\n` +
+        (services.length
+          ? `services:\n${services.map((s) => `  - ${s}`).join("\n")}\n`
+          : "");
+      const workloadsPreview =
+        (data.manifests ?? [])
+          .map((m) => JSON.stringify(m, null, 2))
+          .join("\n---\n") || "# no manifests generated";
+      setYaml({ workloads: workloadsPreview, import: importPreview });
       const report = await api.validateConfig(sessionId);
       setValidation(report);
       advanceToStep("configure");
@@ -562,7 +576,7 @@ export default function HomePage() {
               <StepPanel
                 key="architecture"
                 title="Infrastructure architecture"
-                subtitle="Proposed multi-service topology for Zerops private networking."
+                subtitle="Proposed multi-service topology for cluster-internal networking."
                 badge="Architecture Builder"
               >
                 {isPreviewStep && <PreviewBanner />}
@@ -611,7 +625,7 @@ export default function HomePage() {
                 ) : null}
                 <div className="mt-6">
                   <Button onClick={loadYaml} loading={loading} disabled={isPreviewStep}>
-                    Generate Zerops Config
+                    Generate K8s Manifests
                   </Button>
                 </div>
               </StepPanel>
@@ -620,14 +634,14 @@ export default function HomePage() {
             {step === "configure" && activeYaml && (
               <StepPanel
                 key="configure"
-                title="Zerops configuration"
-                subtitle="Import YAML + zerops.yaml generated from your repository analysis."
-                badge="Zerops Native"
+                title="Kubernetes manifests"
+                subtitle="Deployment + Service + HTTPRoute generated from your repository analysis."
+                badge="K8s Native"
               >
                 {isPreviewStep && <PreviewBanner />}
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <YamlPreview title="import.yaml" content={activeYaml.import} />
-                  <YamlPreview title="zerops.yaml" content={activeYaml.zerops} />
+                  <YamlPreview title="namespace.yaml" content={activeYaml.import} />
+                  <YamlPreview title="workloads.yaml" content={activeYaml.workloads} />
                 </div>
                 {validation && !isPreviewStep && (
                   <Card className="mt-4">
@@ -746,7 +760,7 @@ export default function HomePage() {
                     </p>
                     <p className="mt-2 text-sm text-zinc-200">
                       {deployStatus.failure_summary ??
-                        "Zerops import or pipeline failed. Review the log below."}
+                        "Kubernetes apply or pipeline failed. Review the log below."}
                     </p>
                     {deployStatus.failure_phase && (
                       <p className="mt-2 text-xs text-zinc-500">
@@ -841,7 +855,7 @@ export default function HomePage() {
               <StepPanel
                 key="operate"
                 title="Observability"
-                subtitle="Unified metrics, logs, and live health from Zerops — polled every 30s."
+                subtitle="Unified metrics, logs, and live health from the K8s API — polled every 30s."
                 badge="Observability Layer"
               >
                 {isPreviewStep && <PreviewBanner />}
