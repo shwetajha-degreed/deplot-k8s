@@ -413,6 +413,18 @@ async def start_deploy(body: DeployRequest):
                 },
             )
         deps_env.update(rd_result["env"])
+    if not body.demo_mode and session.stack.search:
+        typesense = get_service("deps_typesense")
+        ts_result = await typesense.provision(namespace, f"{slug}-search")
+        if not ts_result.get("ready"):
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "typesense provisioning failed",
+                    "detail": ts_result.get("error"),
+                },
+            )
+        deps_env.update(ts_result["env"])
 
     config = await yaml_svc.generate(session.stack, session.repo_url)
     _inject_env_into_deployments(config.manifests, deps_env)
