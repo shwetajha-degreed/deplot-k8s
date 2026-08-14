@@ -26,7 +26,7 @@ For every deployable service (frontend, api, worker), emit:
 
 2. **Service** (`v1`, type ClusterIP) — targets the Deployment's pod port. Name matches the Deployment name.
 
-3. **HTTPRoute** (`gateway.networking.k8s.io/v1`) — ONLY for externally reachable services (typically `web` / frontend, sometimes `api`). Shape:
+3. **HTTPRoute** (`gateway.networking.k8s.io/v1`) — for BOTH the frontend AND the api service (if present). The frontend hostname is `{slug}-frontend.internal.sbx.degreed.com`; the api hostname is `{slug}-api.internal.sbx.degreed.com`. The api needs its own HTTPRoute because the frontend's Next.js bundle bakes `NEXT_PUBLIC_API_URL` at build time and the browser calls that URL directly. Shape:
 
 ```json
 {

@@ -283,7 +283,10 @@ class YamlGeneratorService(BaseService):
         for svc in deployable:
             port = 8000 if svc == "api" else 3000
             image = f"{self._registry}/{slug}-{svc}:latest"
-            external = svc in ("frontend", "web") or (svc == "api" and not stack.has_frontend)
+            # api and frontend both get HTTPRoutes: frontend so browsers can
+            # reach the UI, api so the frontend's baked-in NEXT_PUBLIC_API_URL
+            # resolves from the client's browser (not just cluster-internal).
+            external = svc in ("frontend", "web", "api")
 
             manifests.append(_deployment(namespace, svc, slug, image, port))
             manifests.append(_service(namespace, svc, port))

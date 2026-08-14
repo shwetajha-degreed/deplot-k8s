@@ -43,6 +43,7 @@ class KanikoBuildService(BaseService):
         repo_url: str,
         dockerfile: str,
         git_ref: str = "main",
+        build_args: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         # SA must exist before the Job pod schedules; auto-create so callers
         # don't have to pre-provision every namespace.
@@ -59,6 +60,7 @@ class KanikoBuildService(BaseService):
             repo_url=repo_url,
             git_ref=git_ref,
             dockerfile=dockerfile,
+            build_args=build_args or {},
         )
 
         # Delete any prior Job with the same name so re-runs re-execute cleanly.
@@ -218,6 +220,7 @@ class KanikoBuildService(BaseService):
         repo_url: str,
         git_ref: str,
         dockerfile: str,
+        build_args: dict[str, str],
     ) -> dict[str, Any]:
         # Passing the Dockerfile through argv keeps us from needing a ConfigMap;
         # base64 avoids quoting hazards inside the shell.
@@ -311,6 +314,7 @@ class KanikoBuildService(BaseService):
                                     f"--destination={image}",
                                     "--cache=true",
                                     "--use-new-run",
+                                    *[f"--build-arg={k}={v}" for k, v in build_args.items()],
                                 ],
                                 # Node builds routinely need >1 GB during
                                 # snapshot; the namespace LimitRange default

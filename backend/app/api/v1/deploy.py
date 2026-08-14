@@ -65,8 +65,13 @@ def _fallback_dockerfile(stack, service_name: str) -> str:
     if is_frontend or "next" in fw or "node" in runtime:
         # npm install (not `npm ci`) — lockfile may be absent; robustness over
         # reproducibility for the sandbox smoke path.
+        # ARG NEXT_PUBLIC_API_URL is baked into the Next.js build because
+        # Next.js compiles NEXT_PUBLIC_* env vars into the client bundle at
+        # build time; setting it at runtime doesn't reach the browser.
         return (
             f"FROM node:22-alpine AS builder\n"
+            f"ARG NEXT_PUBLIC_API_URL\n"
+            f"ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL\n"
             f"WORKDIR /app\n"
             f"COPY {sub}/package*.json ./\n"
             f"RUN npm install --no-audit --no-fund\n"
@@ -329,6 +334,16 @@ async def start_deploy(body: DeployRequest):
             )
             stack_summary = _dockerfile_stack_summary(session.stack)
 
+            # Deterministic hostnames — computed BEFORE builds so the
+            # frontend can bake the API URL into its build (NEXT_PUBLIC_*
+            # env vars are compiled into the Next.js JS bundle at build
+            # time, not read at runtime).
+            api_url = (
+                f"https://{slug}-api.{settings.base_domain}/api/v1"
+                if "api" in services
+                else ""
+            )
+
             build_coros = []
             for svc_name in services:
                 dockerfile = await gemini.generate_dockerfile(
@@ -340,6 +355,9 @@ async def start_deploy(body: DeployRequest):
                 )
                 if not dockerfile:
                     dockerfile = _fallback_dockerfile(session.stack, svc_name)
+                svc_build_args: dict[str, str] = {}
+                if svc_name in ("frontend", "web") and api_url:
+                    svc_build_args["NEXT_PUBLIC_API_URL"] = api_url
                 build_coros.append(
                     kaniko_svc.build_image(
                         namespace=settings.build_namespace,
@@ -347,6 +365,7 @@ async def start_deploy(body: DeployRequest):
                         slug=slug,
                         repo_url=session.repo_url,
                         dockerfile=dockerfile,
+                        build_args=svc_build_args,
                     )
                 )
             submissions = await asyncio.gather(*build_coros)
