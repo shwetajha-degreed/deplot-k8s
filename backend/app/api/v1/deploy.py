@@ -73,53 +73,6 @@ def _mount_runtime_env(
                 c["envFrom"] = env_from
 
 
-def _detect_api_prefix(files_seen: dict[str, str] | None) -> str:
-    """Figure out what URL prefix the api routes live under.
-
-    Different FastAPI/Flask apps mount routes at different bases:
-      - /api/v1/*   (Showcase)
-      - /api/*      (dev-velocity)
-      - /*          (no prefix)
-
-    Falling back to a hardcoded `/api/v1` bakes 404s into the frontend
-    build when the api actually uses `/api`. Parse main.py from the
-    analyze context and pick the most-specific common prefix that all
-    routes share.
-    """
-    import re
-
-    if not files_seen:
-        return "/api/v1"
-    main_content = ""
-    for path, content in files_seen.items():
-        if path.endswith("main.py") or "/main.py" in path or path == "main.py":
-            main_content = content or ""
-            break
-    if not main_content:
-        return "/api/v1"
-
-    # Match @app.get(...) / @app.post(...) / @router.get(...) etc.
-    routes = re.findall(
-        r"@(?:app|router)\.(?:get|post|put|delete|patch)\(\s*[\'\"]([^\'\"]+)[\'\"]",
-        main_content,
-    )
-    if not routes:
-        return "/api/v1"
-
-    api_routes = [r for r in routes if r.startswith("/api")]
-    if not api_routes:
-        return ""  # api routes not under /api at all; frontend hits origin
-
-    # Only bake /api/v1 into the base URL when the routes strongly imply
-    # the frontend expects it there (versioned APIs — Showcase-style).
-    # For everything else default to bare origin, because the common
-    # CRA/Vue convention is `${API_URL}${'/api/whatever'}` — if we add
-    # /api to the base, the fetches become /api/api/whatever and 404.
-    if all(r == "/api/v1" or r.startswith("/api/v1/") for r in api_routes):
-        return "/api/v1"
-    return ""
-
-
 def _extract_expose_port(dockerfile: str) -> int | None:
     # Parse `EXPOSE <port>` from a Dockerfile so downstream manifests
     # bind/probe the actual port the container listens on (not our
@@ -637,43 +590,14 @@ async def _execute_deploy_pipeline(
             # frontend can bake the API URL into its build (NEXT_PUBLIC_*
             # env vars are compiled into the Next.js JS bundle at build
             # time, not read at runtime).
-            # Prefix comes from actually parsing main.py — hardcoding
-            # /api/v1 baked 404s into any repo mounting routes at /api/
-            # or a custom prefix.
-            # Belt-and-suspenders: if analyze didn't populate files_seen
-            # (empty session state, older sessions from before we added the
-            # field, private-repo raw fetch failures, ...), re-fetch main.py
-            # on-demand so the prefix detector always has real routes to
-            # look at. Cheap: one GitHub API call.
-            files_seen = dict(session.files_seen or {})
-            if not any("main.py" in p for p in files_seen) and session.repo_url:
-                try:
-                    github_svc = get_service("github")
-                    for candidate in ("backend/main.py", "api/main.py", "main.py", "app/main.py"):
-                        content = await github_svc._fetch_raw(
-                            *github_svc._parse_github_url(session.repo_url),
-                            path=candidate,
-                            token=session.github_token,
-                        )
-                        if content:
-                            files_seen[candidate] = content[:4000]
-                            break
-                except Exception:
-                    pass
-            api_prefix = _detect_api_prefix(files_seen)
-            record_ops_event(
-                deployment.id,
-                source="deploy",
-                event_type="api_prefix_detected",
-                message=(
-                    f"prefix={api_prefix!r} files_seen_keys="
-                    f"{sorted(files_seen.keys())[:10]} "
-                    f"tree_len={len(session.tree_paths or [])}"
-                )[:1000],
-                service="platform",
-            )
+            # Bare origin only. Path prefixes (/api/v1, /api, ...) are the
+            # target app's responsibility — the frontend code owns whatever
+            # it appends to this base URL. Deplot used to try to detect
+            # the prefix from main.py routes, but that was fragile and
+            # placed API-shape assumptions in the deploy tool. Simpler
+            # contract wins.
             api_url = (
-                f"https://{slug}-api.{settings.base_domain}{api_prefix}"
+                f"https://{slug}-api.{settings.base_domain}"
                 if "api" in services
                 else ""
             )
