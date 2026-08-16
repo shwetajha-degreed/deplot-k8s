@@ -38,6 +38,50 @@ from app.services.timeline import record_ops_event
 router = APIRouter()
 
 
+def _detect_api_prefix(files_seen: dict[str, str] | None) -> str:
+    """Figure out what URL prefix the api routes live under.
+
+    Different FastAPI/Flask apps mount routes at different bases:
+      - /api/v1/*   (Showcase)
+      - /api/*      (dev-velocity)
+      - /*          (no prefix)
+
+    Falling back to a hardcoded `/api/v1` bakes 404s into the frontend
+    build when the api actually uses `/api`. Parse main.py from the
+    analyze context and pick the most-specific common prefix that all
+    routes share.
+    """
+    import re
+
+    if not files_seen:
+        return "/api/v1"
+    main_content = ""
+    for path, content in files_seen.items():
+        if path.endswith("main.py") or "/main.py" in path or path == "main.py":
+            main_content = content or ""
+            break
+    if not main_content:
+        return "/api/v1"
+
+    # Match @app.get(...) / @app.post(...) / @router.get(...) etc.
+    routes = re.findall(
+        r"@(?:app|router)\.(?:get|post|put|delete|patch)\(\s*[\'\"]([^\'\"]+)[\'\"]",
+        main_content,
+    )
+    if not routes:
+        return "/api/v1"
+
+    api_routes = [r for r in routes if r.startswith("/api")]
+    if not api_routes:
+        return ""  # api routes not under /api at all; frontend hits origin
+
+    if all(r == "/api/v1" or r.startswith("/api/v1/") for r in api_routes):
+        return "/api/v1"
+    if all(r == "/api" or r.startswith("/api/") for r in api_routes):
+        return "/api"
+    return "/api/v1"  # mixed — ambiguous, default to versioned
+
+
 def _extract_expose_port(dockerfile: str) -> int | None:
     # Parse `EXPOSE <port>` from a Dockerfile so downstream manifests
     # bind/probe the actual port the container listens on (not our
@@ -555,8 +599,12 @@ async def _execute_deploy_pipeline(
             # frontend can bake the API URL into its build (NEXT_PUBLIC_*
             # env vars are compiled into the Next.js JS bundle at build
             # time, not read at runtime).
+            # Prefix comes from actually parsing main.py — hardcoding
+            # /api/v1 baked 404s into any repo mounting routes at /api/
+            # or a custom prefix.
+            api_prefix = _detect_api_prefix(session.files_seen)
             api_url = (
-                f"https://{slug}-api.{settings.base_domain}/api/v1"
+                f"https://{slug}-api.{settings.base_domain}{api_prefix}"
                 if "api" in services
                 else ""
             )
