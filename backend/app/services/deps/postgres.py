@@ -75,8 +75,22 @@ class PostgresProvisioner(BaseService):
         # + FastAPI) and DATABASE_URL_SYNC (bare psycopg-friendly) so sync
         # tooling like Alembic migrations can still connect using an
         # explicitly-named env.
-        async_url = re.sub(r"^postgres(?:ql)?://", "postgresql+asyncpg://", base_url)
-        sync_url = re.sub(r"^postgres://", "postgresql://", base_url)
+        # asyncpg rejects libpq's `sslmode=` param name (uses `ssl=` instead)
+        # and in-cluster traffic to CNPG doesn't need SSL anyway — strip it
+        # from the async URL via urlsplit/urlunsplit rather than a regex
+        # so we don't orphan `?`/`&` when sslmode isn't the only param.
+        # Sync psycopg2 understands sslmode natively so the sync URL keeps it.
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+        parts = urlsplit(base_url)
+        scheme_async = "postgresql+asyncpg"
+        params = [(k, v) for k, v in parse_qsl(parts.query) if k.lower() != "sslmode"]
+        async_url = urlunsplit(
+            (scheme_async, parts.netloc, parts.path, urlencode(params), parts.fragment)
+        )
+        sync_url = urlunsplit(
+            ("postgresql", parts.netloc, parts.path, parts.query, parts.fragment)
+        )
 
         return {
             "env": {
