@@ -120,19 +120,31 @@ class GitHubService(BaseService):
     async def _fetch_raw(
         self, owner: str, repo: str, path: str, token: str | None = None
     ) -> str:
-        # raw.githubusercontent.com returns 404 for private repos when
-        # unauthenticated; the token unlocks them.
-        headers = {}
+        # Prefer the GitHub API /contents endpoint over raw.githubusercontent.com:
+        # raw.* is inconsistent for private repos (Bearer tokens sometimes
+        # trigger a 302 to a signed URL that drops the auth header; fine-grained
+        # tokens often 404 outright). The API path returns base64-encoded
+        # content and works uniformly with `Authorization: Bearer <PAT>` for
+        # both public and private repos.
+        import base64
+
+        headers = {"Accept": "application/vnd.github+json"}
         if token:
             headers["Authorization"] = f"Bearer {token}"
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{path}"
+        url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
         async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
             resp = await client.get(url)
-            if resp.status_code == 404:
-                url = url.replace("/main/", "/master/")
-                resp = await client.get(url)
+            if resp.status_code != 200:
+                # Try master branch fallback for older repos.
+                resp = await client.get(url, params={"ref": "master"})
             if resp.status_code == 200:
-                return resp.text[:8000]
+                try:
+                    data = resp.json()
+                    if isinstance(data, dict) and data.get("encoding") == "base64":
+                        raw = base64.b64decode(data.get("content", "") or "")
+                        return raw.decode("utf-8", errors="replace")[:8000]
+                except Exception:
+                    pass
         return ""
 
     @staticmethod
