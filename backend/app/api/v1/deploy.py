@@ -640,7 +640,38 @@ async def _execute_deploy_pipeline(
             # Prefix comes from actually parsing main.py — hardcoding
             # /api/v1 baked 404s into any repo mounting routes at /api/
             # or a custom prefix.
-            api_prefix = _detect_api_prefix(session.files_seen)
+            # Belt-and-suspenders: if analyze didn't populate files_seen
+            # (empty session state, older sessions from before we added the
+            # field, private-repo raw fetch failures, ...), re-fetch main.py
+            # on-demand so the prefix detector always has real routes to
+            # look at. Cheap: one GitHub API call.
+            files_seen = dict(session.files_seen or {})
+            if not any("main.py" in p for p in files_seen) and session.repo_url:
+                try:
+                    github_svc = get_service("github")
+                    for candidate in ("backend/main.py", "api/main.py", "main.py", "app/main.py"):
+                        content = await github_svc._fetch_raw(
+                            *github_svc._parse_github_url(session.repo_url),
+                            path=candidate,
+                            token=session.github_token,
+                        )
+                        if content:
+                            files_seen[candidate] = content[:4000]
+                            break
+                except Exception:
+                    pass
+            api_prefix = _detect_api_prefix(files_seen)
+            record_ops_event(
+                deployment.id,
+                source="deploy",
+                event_type="api_prefix_detected",
+                message=(
+                    f"prefix={api_prefix!r} files_seen_keys="
+                    f"{sorted(files_seen.keys())[:10]} "
+                    f"tree_len={len(session.tree_paths or [])}"
+                )[:1000],
+                service="platform",
+            )
             api_url = (
                 f"https://{slug}-api.{settings.base_domain}{api_prefix}"
                 if "api" in services
