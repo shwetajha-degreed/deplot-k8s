@@ -79,6 +79,34 @@ class AnalysisService(BaseService):
             stack.cache = "valkey"
             signals["cache"] = "valkey"
 
+        # Python DB drivers imply a database — without this
+        # dev-velocity's backend/requirements.txt (sqlalchemy + asyncpg)
+        # sat unread and Deplot skipped provisioning; the app fell back
+        # to localhost:5433 and got connection-refused.
+        #
+        # Priority matters: aiosqlite is a strong SQLite signal that
+        # trumps SQLAlchemy (which is generic and often shipped alongside
+        # aiosqlite for embedded/dev DBs). asyncpg/psycopg are
+        # Postgres-specific and win when present.
+        if not stack.database:
+            if re.search(
+                r"\b(asyncpg|psycopg2?(?:-binary)?|pg8000)\b", combined, re.I
+            ):
+                stack.database = "postgresql"
+                signals["database"] = "python-driver"
+            elif re.search(r"\b(aiosqlite)\b", combined, re.I):
+                stack.database = "sqlite"
+                signals["database"] = "sqlite"
+            elif re.search(r"\b(sqlalchemy)\b", combined, re.I):
+                # SQLAlchemy without an explicit driver signal — default
+                # to Postgres. Cheaper to over-provision than to leave
+                # the app connection-refused.
+                stack.database = "postgresql"
+                signals["database"] = "sqlalchemy-default"
+            elif re.search(r"\b(pymongo|motor)\b", combined, re.I):
+                stack.database = "mongodb"
+                signals["database"] = "python-driver"
+
         env_from_code = set(
             re.findall(
                 r"process\.env\.(\w+)|os\.environ\[['\"](\w+)['\"]\]",
