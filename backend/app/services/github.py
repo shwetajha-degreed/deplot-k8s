@@ -21,6 +21,13 @@ class GitHubService(BaseService):
     ) -> dict[str, str]:
         """Return path -> content snippet map for key files.
 
+        Same behavior as before, plus the raw tree is now cached on the
+        instance so callers can pull the full path list via
+        get_last_tree_paths(). This lets analyze feed the paths + key file
+        contents into generate_dockerfile so Gemini can locate the actual
+        entrypoint (e.g. `dev_velocity.main:app` vs `app.main:app`) rather
+        than guessing from a hardcoded stack summary.
+
         github_token: optional GitHub PAT for private repos; takes precedence
         over settings.github_token.
         """
@@ -38,6 +45,12 @@ class GitHubService(BaseService):
             resp.raise_for_status()
             tree = resp.json().get("tree", [])
 
+        # Cache all blob paths for callers that want the full skeleton
+        # (analyze -> generate_dockerfile).
+        self._last_tree_paths = [
+            entry.get("path", "") for entry in tree if entry.get("type") == "blob"
+        ]
+
         files: dict[str, str] = {}
         key_patterns = (
             "package.json",
@@ -46,14 +59,21 @@ class GitHubService(BaseService):
             "Dockerfile",
             "prisma/schema.prisma",
             "next.config",
+            "main.py",
+            "server.js",
+            "go.mod",
+            "Cargo.toml",
+            "Gemfile",
+            "pom.xml",
+            "build.gradle",
         )
-        for entry in tree:
-            path = entry.get("path", "")
-            if entry.get("type") != "blob":
-                continue
+        for path in self._last_tree_paths:
             if any(k in path for k in key_patterns):
                 files[path] = await self._fetch_raw(owner, repo, path, token)
         return files
+
+    def get_last_tree_paths(self) -> list[str]:
+        return list(getattr(self, "_last_tree_paths", []) or [])
 
     async def fetch_dockerfile(
         self,

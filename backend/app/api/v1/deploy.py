@@ -513,6 +513,8 @@ async def _execute_deploy_pipeline(
                         service_name=svc_name,
                         stack_summary=stack_summary,
                         prompt_template=prompt_template,
+                        files_seen=session.files_seen,
+                        tree_paths=session.tree_paths,
                     )
                 if not dockerfile:
                     dockerfile = _fallback_dockerfile(session.stack, svc_name)

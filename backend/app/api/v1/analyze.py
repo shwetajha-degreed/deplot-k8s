@@ -65,6 +65,13 @@ async def analyze_repo(body: AnalyzeRequest):
     elif body.demo_mode:
         stack.repo_slug = "demo"
     session.stack = stack
+    # Persist analyze context so deploy can enrich Gemini's Dockerfile prompt.
+    session.files_seen = {p: (c or "")[:4000] for p, c in files.items() if c}
+    if hasattr(github, "get_last_tree_paths"):
+        try:
+            session.tree_paths = github.get_last_tree_paths()[:2000]
+        except Exception:
+            session.tree_paths = []
     session.status = SessionStatus.READY
     session_store.save(session)
 

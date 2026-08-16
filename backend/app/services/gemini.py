@@ -150,6 +150,8 @@ graph: {graph_summary}
         service_name: str,
         stack_summary: str,
         prompt_template: str,
+        files_seen: dict[str, str] | None = None,
+        tree_paths: list[str] | None = None,
     ) -> str | None:
         if not self._enabled:
             return None
@@ -159,6 +161,33 @@ graph: {graph_summary}
         genai.configure(api_key=self._settings.gemini_api_key)
         model = genai.GenerativeModel(self._settings.gemini_model)
 
+        # Compact repo skeleton: shallow paths + a few entrypoint hints so
+        # Gemini can pick the actual module path (e.g. dev_velocity.main:app)
+        # instead of assuming `app.main:app` and crashing on ImportError.
+        tree_paths = tree_paths or []
+        shallow = [
+            p for p in tree_paths
+            if p and p.count("/") <= 2
+        ][:200]
+        interesting = [
+            p for p in tree_paths
+            if any(
+                m in p for m in (
+                    "main.py", "app.py", "wsgi.py", "asgi.py",
+                    "server.js", "index.js", "index.ts",
+                    "cmd/", "main.go", "Cargo.toml",
+                    "manage.py",
+                )
+            )
+        ][:40]
+
+        files_seen = files_seen or {}
+        files_block_lines = []
+        for path, content in list(files_seen.items())[:10]:
+            snippet = (content or "")[:2000]
+            files_block_lines.append(f"--- {path} ---\n{snippet}")
+        files_block = "\n\n".join(files_block_lines) or "(none available)"
+
         prompt = f"""{prompt_template}
 
 ## Input
@@ -167,6 +196,22 @@ slug: {slug}
 repo_url: {repo_url}
 service_name: {service_name}
 stack: {stack_summary}
+
+## Repo skeleton (top-level + one-deep paths)
+
+{chr(10).join(shallow) or "(unknown)"}
+
+## Likely entrypoint files spotted in the tree
+
+{chr(10).join(interesting) or "(none obvious)"}
+
+## Key file contents
+
+{files_block}
+
+Use the file contents above (especially pyproject.toml / package.json /
+main.py) to derive the correct module path or entrypoint. Do NOT assume
+`app.main:app` or `src/index.js` if the repo uses a different layout.
 """
         try:
             response = await model.generate_content_async(prompt)

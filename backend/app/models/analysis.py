@@ -96,5 +96,13 @@ class AnalysisSession(BaseModel):
     status: SessionStatus = SessionStatus.PENDING
     stack: StackDetection | None = None
     architecture: ArchitectureGraph | None = None
+    # Files fetched during analyze (path -> content snippet). Passed to
+    # Gemini during Dockerfile generation so it can pick the right
+    # entrypoint (uvicorn app.main:app vs dev_velocity.main:app etc.)
+    # from the actual pyproject/package/main.py contents.
+    files_seen: dict[str, str] = Field(default_factory=dict)
+    # All top-level and one-level-deep file paths in the repo. Compact
+    # signal for entrypoint discovery without dragging in file contents.
+    tree_paths: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
