@@ -116,7 +116,53 @@ def _inject_env_into_deployments(manifests: list[dict], env: dict[str, str]) -> 
             container["env"] = list(by_name.values())
 
 
-def _fallback_dockerfile(stack, service_name: str) -> str:
+def _detect_python_entrypoint(
+    tree_paths: list[str], monorepo_path: str | None
+) -> str:
+    """Pick the ASGI/WSGI entrypoint module from actual repo paths.
+
+    Priority within monorepo_path (if set), then repo root:
+      main.py (root of package) > asgi.py > app.py > wsgi.py > manage.py
+    Returns the dotted module path suitable for `uvicorn <module>:app`.
+    Falls back to 'app.main' if nothing plausible is found.
+    """
+    if not tree_paths:
+        return "app.main"
+
+    root = (monorepo_path or "").strip("/")
+
+    def _module_for(path: str) -> str:
+        # backend/app/main.py  ->  app.main   (when monorepo_path=backend)
+        # dev_velocity/main.py ->  dev_velocity.main
+        # main.py              ->  main
+        rel = path[len(root) + 1:] if root and path.startswith(root + "/") else path
+        parts = rel.split("/")
+        if parts[-1].endswith(".py"):
+            parts[-1] = parts[-1][:-3]
+        return ".".join(p for p in parts if p)
+
+    # Only consider paths inside the monorepo_path (or anywhere if unset).
+    if root:
+        scoped = [p for p in tree_paths if p.startswith(root + "/") and p.endswith(".py")]
+    else:
+        scoped = [p for p in tree_paths if p.endswith(".py")]
+
+    preferred = ("main.py", "asgi.py", "app.py", "wsgi.py", "manage.py")
+    for basename in preferred:
+        # Prefer the shallowest match — a repo may have both app/main.py and
+        # tests/fixtures/main.py; the top-level candidate wins.
+        matches = sorted(
+            (p for p in scoped if p.endswith("/" + basename) or p == basename),
+            key=lambda p: p.count("/"),
+        )
+        if matches:
+            return _module_for(matches[0])
+    return "app.main"
+
+
+def _fallback_dockerfile(
+    stack, service_name: str, tree_paths: list[str] | None = None
+) -> str:
     is_frontend = service_name in ("web", "frontend")
     fw = ((stack.backend_framework if not is_frontend else stack.framework) or "").lower()
     runtime = ((stack.backend_runtime if not is_frontend else stack.runtime) or "").lower()
@@ -150,17 +196,28 @@ def _fallback_dockerfile(stack, service_name: str) -> str:
             f'CMD ["npm", "start"]\n'
         )
     if "fastapi" in fw or "python" in runtime:
+        # Pick the real entrypoint from tree_paths — hardcoding
+        # `app.main:app` crashes on any repo without an app/ package
+        # (dev_velocity/main.py, src/main.py, etc.).
+        entry_module = _detect_python_entrypoint(
+            tree_paths or [], stack.monorepo_backend_path
+        )
+        # `pip install .` when pyproject.toml is present (project package),
+        # otherwise fall back to requirements.txt. Both may 500 harmlessly
+        # if the repo doesn't have either; the ||true keeps the layer
+        # buildable so we can still ship something.
         return (
             f"FROM python:3.12-slim\n"
             f"WORKDIR /app\n"
             f"ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1\n"
-            f"COPY {sub}/requirements.txt* {sub}/pyproject.toml* ./\n"
-            f"RUN pip install --no-cache-dir -r requirements.txt || true\n"
             f"COPY {sub}/ ./\n"
-            "RUN useradd -u 1001 -m app && chown -R app:app /app\n"
-            "USER app\n"
-            "EXPOSE 8000\n"
-            'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]\n'
+            f"RUN pip install --no-cache-dir . 2>/dev/null || pip install "
+            f"--no-cache-dir -r requirements.txt 2>/dev/null || true\n"
+            f"RUN pip install --no-cache-dir 'uvicorn[standard]' 2>/dev/null || true\n"
+            f"RUN useradd -u 1001 -m app && chown -R app:app /app\n"
+            f"USER app\n"
+            f"EXPOSE 8000\n"
+            f'CMD ["uvicorn", "{entry_module}:app", "--host", "0.0.0.0", "--port", "8000"]\n'
         )
     return (
         "FROM alpine:3.20\n"
@@ -517,7 +574,9 @@ async def _execute_deploy_pipeline(
                         tree_paths=session.tree_paths,
                     )
                 if not dockerfile:
-                    dockerfile = _fallback_dockerfile(session.stack, svc_name)
+                    dockerfile = _fallback_dockerfile(
+                        session.stack, svc_name, tree_paths=session.tree_paths
+                    )
                 port = _extract_expose_port(dockerfile)
                 if port:
                     svc_ports[svc_name] = port
