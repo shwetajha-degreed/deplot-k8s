@@ -173,13 +173,27 @@ def _fallback_dockerfile(
     if is_frontend or "next" in fw or "node" in runtime:
         # npm install (not `npm ci`) — lockfile may be absent; robustness over
         # reproducibility for the sandbox smoke path.
-        # ARG NEXT_PUBLIC_API_URL is baked into the Next.js build because
-        # Next.js compiles NEXT_PUBLIC_* env vars into the client bundle at
-        # build time; setting it at runtime doesn't reach the browser.
+        # Declare ARG for all three common "browser API base URL" env vars —
+        # they're baked into the JS bundle at build time:
+        #   NEXT_PUBLIC_*  Next.js
+        #   REACT_APP_*    Create React App
+        #   VITE_*         Vite
+        # Whichever the app actually reads gets the right URL; the others
+        # are inert.
+        # Runtime: `npm start` for CRA is the DEV server (react-scripts
+        # start) which ignores the built assets and hot-reloads at runtime.
+        # For a real production serve we need `serve -s build` (CRA) or
+        # `serve -s dist` (Vite). The CMD picks whichever build output
+        # exists; falls back to `npm start` for Next.js (which is the
+        # correct production runner for Next).
         return (
             f"FROM node:22-alpine AS builder\n"
             f"ARG NEXT_PUBLIC_API_URL\n"
-            f"ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL\n"
+            f"ARG REACT_APP_API_URL\n"
+            f"ARG VITE_API_URL\n"
+            f"ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \\\n"
+            f"    REACT_APP_API_URL=$REACT_APP_API_URL \\\n"
+            f"    VITE_API_URL=$VITE_API_URL\n"
             f"WORKDIR /app\n"
             f"COPY {sub}/package*.json ./\n"
             f"RUN npm install --no-audit --no-fund\n"
@@ -188,12 +202,17 @@ def _fallback_dockerfile(
             f"\n"
             f"FROM node:22-alpine\n"
             f"WORKDIR /app\n"
-            f"ENV NODE_ENV=production\n"
+            f"ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0\n"
+            f"RUN apk add --no-cache tini && npm install -g serve --no-audit --no-fund\n"
             f"RUN addgroup -S app && adduser -S app -G app\n"
             f"COPY --from=builder --chown=app:app /app ./\n"
             f"USER app\n"
             f"EXPOSE 3000\n"
-            f'CMD ["npm", "start"]\n'
+            f"ENTRYPOINT [\"/sbin/tini\", \"--\"]\n"
+            f'CMD ["sh","-c",'
+            f'"[ -d build ] && exec serve -s build -l 3000 '
+            f'|| [ -d dist ] && exec serve -s dist -l 3000 '
+            f'|| exec npm start"]\n'
         )
     if "fastapi" in fw or "python" in runtime:
         # Pick the real entrypoint from tree_paths — hardcoding
