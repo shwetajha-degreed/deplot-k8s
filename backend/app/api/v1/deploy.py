@@ -75,11 +75,14 @@ def _detect_api_prefix(files_seen: dict[str, str] | None) -> str:
     if not api_routes:
         return ""  # api routes not under /api at all; frontend hits origin
 
+    # Only bake /api/v1 into the base URL when the routes strongly imply
+    # the frontend expects it there (versioned APIs — Showcase-style).
+    # For everything else default to bare origin, because the common
+    # CRA/Vue convention is `${API_URL}${'/api/whatever'}` — if we add
+    # /api to the base, the fetches become /api/api/whatever and 404.
     if all(r == "/api/v1" or r.startswith("/api/v1/") for r in api_routes):
         return "/api/v1"
-    if all(r == "/api" or r.startswith("/api/") for r in api_routes):
-        return "/api"
-    return "/api/v1"  # mixed — ambiguous, default to versioned
+    return ""
 
 
 def _extract_expose_port(dockerfile: str) -> int | None:
