@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import re
 import time
 from typing import Any
 
@@ -60,17 +61,28 @@ class PostgresProvisioner(BaseService):
         uri = secret_data.get("uri")
         if uri:
             # CNPG's `uri` value is bare — append sslmode for downstream clients.
-            database_url = uri if "sslmode=" in uri else f"{uri}?sslmode=require"
+            base_url = uri if "sslmode=" in uri else f"{uri}?sslmode=require"
         else:
             user = secret_data.get("username", "")
             pw = secret_data.get("password", "")
             host = secret_data.get("host", f"{release_name}-rw.{namespace}.svc")
             port = secret_data.get("port", "5432")
             db = secret_data.get("dbname", "app")
-            database_url = f"postgres://{user}:{pw}@{host}:{port}/{db}?sslmode=require"
+            base_url = f"postgresql://{user}:{pw}@{host}:{port}/{db}?sslmode=require"
+
+        # Rewrite to the format each driver expects. Emit both DATABASE_URL
+        # (async — the modern default; matches SQLAlchemy `create_async_engine`
+        # + FastAPI) and DATABASE_URL_SYNC (bare psycopg-friendly) so sync
+        # tooling like Alembic migrations can still connect using an
+        # explicitly-named env.
+        async_url = re.sub(r"^postgres(?:ql)?://", "postgresql+asyncpg://", base_url)
+        sync_url = re.sub(r"^postgres://", "postgresql://", base_url)
 
         return {
-            "env": {"DATABASE_URL": database_url},
+            "env": {
+                "DATABASE_URL": async_url,
+                "DATABASE_URL_SYNC": sync_url,
+            },
             "cluster": release_name,
             "ready": True,
             "secret_name": secret_name,
