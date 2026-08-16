@@ -582,13 +582,24 @@ async def _execute_deploy_pipeline(
                     svc_ports[svc_name] = port
                 svc_build_args: dict[str, str] = {}
                 if svc_name in ("frontend", "web"):
+                    # Different frontend frameworks pick different names
+                    # for the "which URL does the browser hit" env var,
+                    # all baked at build time:
+                    #   NEXT_PUBLIC_*  Next.js
+                    #   REACT_APP_*    Create React App
+                    #   VITE_*         Vite
+                    # Pass all three — Kaniko silently ignores build args
+                    # a Dockerfile doesn't declare with ARG.
                     if api_url:
-                        svc_build_args["NEXT_PUBLIC_API_URL"] = api_url
-                    # BACKEND_URL is a common build-arg name for
-                    # server-side proxying to the api Service (e.g.
-                    # Next.js next.config rewrites). Set it based on
-                    # the detected api EXPOSE port. Dockerfiles that
-                    # don't declare this ARG will simply ignore it.
+                        for key in (
+                            "NEXT_PUBLIC_API_URL",
+                            "REACT_APP_API_URL",
+                            "VITE_API_URL",
+                        ):
+                            svc_build_args[key] = api_url
+                    # BACKEND_URL — for server-side proxying (Next.js
+                    # next.config rewrites). Internal cluster URL, not
+                    # the public HTTPS one.
                     api_port = svc_ports.get("api", 8000)
                     svc_build_args["BACKEND_URL"] = f"http://api:{api_port}"
                 build_coros.append(
