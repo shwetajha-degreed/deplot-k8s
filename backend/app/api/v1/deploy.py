@@ -38,6 +38,41 @@ from app.services.timeline import record_ops_event
 router = APIRouter()
 
 
+_RUNTIME_ENV_SECRET_NAME = "runtime-env"
+
+
+def _mount_runtime_env(
+    manifests: list[dict], secret_name: str = _RUNTIME_ENV_SECRET_NAME
+) -> None:
+    """Attach an envFrom secretRef to every Deployment container.
+
+    Used to expose user-provided runtime secrets (GITHUB_TOKEN,
+    OPENAI_API_KEY, etc.) to the app at runtime without hardcoding
+    keys per-service in the generated manifests.
+    """
+    for m in manifests:
+        if not isinstance(m, dict) or m.get("kind") != "Deployment":
+            continue
+        containers = (
+            (((m.get("spec") or {}).get("template") or {}).get("spec") or {}).get(
+                "containers"
+            )
+            or []
+        )
+        for c in containers:
+            env_from = c.get("envFrom") or []
+            # Idempotent: don't add if already present.
+            if not any(
+                (e.get("secretRef") or {}).get("name") == secret_name
+                for e in env_from
+                if isinstance(e, dict)
+            ):
+                env_from.append(
+                    {"secretRef": {"name": secret_name, "optional": True}}
+                )
+                c["envFrom"] = env_from
+
+
 def _detect_api_prefix(files_seen: dict[str, str] | None) -> str:
     """Figure out what URL prefix the api routes live under.
 
@@ -750,6 +785,39 @@ async def _execute_deploy_pipeline(
     # (defaults would leave uvicorn on 8088 unreachable by an 8000 probe).
     for _svc_name, _port in svc_ports.items():
         _override_service_port(config.manifests, _svc_name, _port)
+
+    # Runtime env: user-provided secrets (GITHUB_TOKEN, OPENAI_API_KEY, ...)
+    # from the wizard. Written to a K8s Secret and mounted via envFrom on
+    # every Deployment so the app reads them via `os.getenv(...)` /
+    # `process.env.*` at runtime. Uses `optional: true` on the ref so the
+    # Deployment doesn't block if the Secret is empty.
+    _mount_runtime_env(config.manifests)
+    if not body.demo_mode and body.runtime_env:
+        import base64
+        secret_manifest = {
+            "apiVersion": "v1",
+            "kind": "Secret",
+            "metadata": {
+                "name": _RUNTIME_ENV_SECRET_NAME,
+                "namespace": namespace,
+                "labels": {"app.kubernetes.io/managed-by": "deplot"},
+            },
+            "type": "Opaque",
+            "data": {
+                k: base64.b64encode(str(v).encode("utf-8")).decode("ascii")
+                for k, v in body.runtime_env.items()
+            },
+        }
+        try:
+            await k8s_svc._apply(secret_manifest)
+        except Exception as exc:  # noqa: BLE001 — non-fatal, log and continue
+            record_ops_event(
+                deployment.id,
+                source="deploy",
+                event_type="runtime_env_apply_failed",
+                message=f"could not apply runtime-env secret: {exc!s}"[:400],
+                service="platform",
+            )
 
     graph = session.architecture
     if not graph:

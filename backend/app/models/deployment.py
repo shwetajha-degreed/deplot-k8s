@@ -119,6 +119,10 @@ class Deployment(BaseModel):
 class DeployRequest(BaseModel):
     session_id: UUID
     demo_mode: bool = False
+    # User-provided runtime secrets (GITHUB_TOKEN, OPENAI_API_KEY, per-app
+    # config, etc.). Written to a K8s Secret in the deploy namespace and
+    # mounted onto every app Deployment via envFrom. Never logged.
+    runtime_env: dict[str, str] = Field(default_factory=dict)
 
 
 class DeployResponse(BaseModel):

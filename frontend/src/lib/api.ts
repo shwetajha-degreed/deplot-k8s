@@ -81,10 +81,18 @@ export const api = {
       `/sessions/${sessionId}/plan`,
     ),
 
-  deploy: (sessionId: string, demoMode: boolean) =>
+  deploy: (
+    sessionId: string,
+    demoMode: boolean,
+    runtimeEnv?: Record<string, string>,
+  ) =>
     request<{ deployment_id: string; status: string; stage: string }>("/deploy", {
       method: "POST",
-      body: JSON.stringify({ session_id: sessionId, demo_mode: demoMode }),
+      body: JSON.stringify({
+        session_id: sessionId,
+        demo_mode: demoMode,
+        runtime_env: runtimeEnv ?? {},
+      }),
     }),
 
   getDeployment: (id: string) => request<Record<string, unknown>>(`/deployment/${id}`),

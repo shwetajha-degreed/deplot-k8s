@@ -95,6 +95,7 @@ export default function HomePage() {
   const [demoMode, setDemoMode] = useState(false);
   const [repoUrl, setRepoUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
+  const [runtimeEnvText, setRuntimeEnvText] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
   const [stack, setStack] = useState<Stack>(null);
@@ -414,7 +415,19 @@ export default function HomePage() {
     advanceToStep("deploy");
     setDeployStage(0);
     try {
-      const res = await api.deploy(sessionId, demoMode);
+      // Parse KEY=VALUE lines from the runtime env textarea. Blank lines,
+      // full-line comments (# ...), and lines missing an `=` are skipped.
+      const runtimeEnv: Record<string, string> = {};
+      for (const raw of runtimeEnvText.split("\n")) {
+        const line = raw.trim();
+        if (!line || line.startsWith("#")) continue;
+        const eq = line.indexOf("=");
+        if (eq <= 0) continue;
+        const key = line.slice(0, eq).trim();
+        const value = line.slice(eq + 1).trim();
+        if (/^[A-Z_][A-Z0-9_]*$/.test(key)) runtimeEnv[key] = value;
+      }
+      const res = await api.deploy(sessionId, demoMode, runtimeEnv);
       setDeploymentId(res.deployment_id);
       await watchDeploymentStream(res.deployment_id);
       await applyDeploymentOutcome(res.deployment_id);
@@ -423,7 +436,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [sessionId, demoMode, advanceToStep, watchDeploymentStream, applyDeploymentOutcome]);
+  }, [sessionId, demoMode, runtimeEnvText, advanceToStep, watchDeploymentStream, applyDeploymentOutcome]);
 
   const retryFromPhase = useCallback(
     async (fromPhase: "import" | "pipeline") => {
@@ -691,6 +704,27 @@ export default function HomePage() {
                     )}
                   </Card>
                 )}
+                <Card className="mt-6">
+                  <label className="text-xs uppercase tracking-wider text-zinc-500">
+                    Runtime environment (optional)
+                  </label>
+                  <p className="mt-1 text-xs text-zinc-500">
+                    One <code>KEY=VALUE</code> per line. Written to a K8s Secret in the
+                    deploy namespace and mounted onto every app Deployment via{" "}
+                    <code>envFrom</code>. Never logged. Use for GitHub tokens, API keys,
+                    or any per-app secret your app reads with{" "}
+                    <code>os.getenv(...)</code> / <code>process.env.*</code>.
+                  </p>
+                  <textarea
+                    className="mt-2 h-40 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-xs text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-40"
+                    placeholder={`# GITHUB_TOKEN=ghp_...\n# GITHUB_OWNER=degreed\n# GITHUB_REPO=your-repo\n# OPENAI_API_KEY=sk-...`}
+                    value={runtimeEnvText}
+                    onChange={(e) => setRuntimeEnvText(e.target.value)}
+                    disabled={demoMode}
+                    spellCheck={false}
+                    autoComplete="off"
+                  />
+                </Card>
                 <div className="mt-6">
                   <Button onClick={runDeploy} loading={loading} disabled={isPreviewStep}>
                     Deploy to Kubernetes
