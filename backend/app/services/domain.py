@@ -306,12 +306,7 @@ class PlannerService(BaseService):
             estimated_cost_usd_month=total_cost,
             estimated_build_minutes=build_minutes,
             pricing_source="aks_shared_pool_list_price",
-            pricing_note=(
-                "Estimated from resource requests declared in Deplot's "
-                "manifests × Azure D-series list rates (CPU $25/core-mo, "
-                "RAM $3.50/GB-mo, Premium SSD $0.15/GB-mo). Ignores egress, "
-                "load balancer, and shared-cluster amortization."
-            ),
+            pricing_note="Azure list-price estimate. Actual spend varies.",
         )
 
 

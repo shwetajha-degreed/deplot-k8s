@@ -604,8 +604,7 @@ export default function HomePage() {
                       autoComplete="off"
                     />
                     <p className="mt-2 text-xs text-zinc-500">
-                      Needs <code>repo:read</code> (or <code>contents:read</code> for a fine-grained
-                      token). Not stored — persists only in memory for this deploy.
+                      Required for private repos. Not stored.
                     </p>
                   </div>
                   {demoMode && (
@@ -727,11 +726,7 @@ export default function HomePage() {
                     Runtime environment (optional)
                   </label>
                   <p className="mt-1 text-xs text-zinc-500">
-                    One <code>KEY=VALUE</code> per line. Written to a K8s Secret in the
-                    deploy namespace and mounted onto every app Deployment via{" "}
-                    <code>envFrom</code>. Never logged. Use for GitHub tokens, API keys,
-                    or any per-app secret your app reads with{" "}
-                    <code>os.getenv(...)</code> / <code>process.env.*</code>.
+                    One <code>KEY=VALUE</code> per line. Never logged.
                   </p>
                   {requiredEnv.length > 0 && (
                     <div className="mt-3">
