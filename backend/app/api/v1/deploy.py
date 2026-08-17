@@ -730,6 +730,7 @@ async def _execute_deploy_pipeline(
                         build_args=svc_build_args,
                         github_token=session.github_token,
                         build_tag=build_tag,
+                        git_ref=session.default_branch or "main",
                     )
                 )
             submissions = await asyncio.gather(*build_coros)

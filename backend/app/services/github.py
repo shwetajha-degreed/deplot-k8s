@@ -39,9 +39,20 @@ class GitHubService(BaseService):
             headers["Authorization"] = f"Bearer {token}"
 
         async with httpx.AsyncClient(timeout=30.0, headers=headers) as client:
-            resp = await client.get(f"{api_base}/git/trees/main?recursive=1")
-            if resp.status_code == 404:
-                resp = await client.get(f"{api_base}/git/trees/master?recursive=1")
+            # Repos default to whatever their owner chose — main, master,
+            # develop, trunk, ... Fetch /repos/{owner}/{repo} first so we
+            # get the authoritative default_branch instead of guessing.
+            # This also gives us a proper 404 with token context if the
+            # repo doesn't exist or the token can't see it, instead of
+            # bubbling up a misleading "master 404".
+            meta = await client.get(api_base)
+            meta.raise_for_status()
+            self._last_default_branch = (
+                meta.json().get("default_branch") or "main"
+            )
+            resp = await client.get(
+                f"{api_base}/git/trees/{self._last_default_branch}?recursive=1"
+            )
             resp.raise_for_status()
             tree = resp.json().get("tree", [])
 
@@ -87,6 +98,9 @@ class GitHubService(BaseService):
 
     def get_last_tree_paths(self) -> list[str]:
         return list(getattr(self, "_last_tree_paths", []) or [])
+
+    def get_last_default_branch(self) -> str:
+        return getattr(self, "_last_default_branch", "main") or "main"
 
     async def fetch_dockerfile(
         self,

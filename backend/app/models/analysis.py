@@ -110,5 +110,9 @@ class AnalysisSession(BaseModel):
     # can pre-populate the runtime-env textarea with KEY=... skeletons.
     # Excludes anything Deplot injects itself (DATABASE_URL, REDIS_URL, ...).
     required_env: list[str] = Field(default_factory=list)
+    # Default branch discovered during analyze (main/master/develop/…) so
+    # Kaniko's git clone targets the right ref instead of the hardcoded
+    # "main" fallback that 404'd on repos with a different default.
+    default_branch: str = "main"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

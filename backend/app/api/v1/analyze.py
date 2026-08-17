@@ -160,6 +160,11 @@ async def analyze_repo(body: AnalyzeRequest):
             session.tree_paths = github.get_last_tree_paths()[:2000]
         except Exception:
             session.tree_paths = []
+    if hasattr(github, "get_last_default_branch"):
+        try:
+            session.default_branch = github.get_last_default_branch()
+        except Exception:
+            session.default_branch = "main"
     # Broaden the env-var scan beyond the key_patterns bucket. That bucket
     # is optimized for stack detection (pyproject, package.json, ...) but
     # env vars live in ANY source file — dev-velocity's OPENAI_API_KEY sits
