@@ -226,12 +226,77 @@ class PlannerService(BaseService):
     def __init__(self) -> None:
         pass
 
+    # AKS Standard_D-series shared node pool — pay-as-you-go rates
+    # (public Azure list price, US regions, approximate). These are
+    # unit costs for the resources declared by our fallback manifests +
+    # provisioners so the "Est. monthly cost" is a real ballpark, not
+    # a placeholder. Refine by pulling actual node SKU + reservation
+    # pricing from the cluster later.
+    _CPU_USD_PER_CORE_MONTH: float = 25.0   # ~$0.034/hr × 730
+    _RAM_USD_PER_GB_MONTH: float = 3.50     # ~$0.005/hr × 730
+    _DISK_USD_PER_GB_MONTH: float = 0.15    # Premium SSD
+
+    # Per-workload resource shapes — must match the requests our fallback
+    # manifests + CNPG/Redis/Typesense provisioners actually set. When
+    # those change, update these too.
+    _WORKLOAD_SHAPES: dict[str, dict[str, float]] = {
+        "api":       {"cpu": 0.1, "ram_gb": 0.125, "disk_gb": 0.0},
+        "frontend":  {"cpu": 0.1, "ram_gb": 0.125, "disk_gb": 0.0},
+        "web":       {"cpu": 0.1, "ram_gb": 0.125, "disk_gb": 0.0},
+        "database":  {"cpu": 0.5, "ram_gb": 0.5,   "disk_gb": 5.0},
+        "cache":     {"cpu": 0.05, "ram_gb": 0.0625, "disk_gb": 1.0},
+        "search":    {"cpu": 0.1, "ram_gb": 0.25,  "disk_gb": 2.0},
+    }
+
     def build_plan(self, stack: StackDetection, graph: ArchitectureGraph) -> DeploymentPlan:
-        # TODO(k8s-port): replace with real AKS pricing tier logic.
-        services = [
-            DeploymentPlanService(name=n.id, type=n.type) for n in graph.nodes
-        ]
-        return DeploymentPlan(services=services, estimated_build_minutes=5)
+        services: list[DeploymentPlanService] = []
+        for node in graph.nodes:
+            shape = self._WORKLOAD_SHAPES.get(node.type, self._WORKLOAD_SHAPES["api"])
+            cost = (
+                shape["cpu"] * self._CPU_USD_PER_CORE_MONTH
+                + shape["ram_gb"] * self._RAM_USD_PER_GB_MONTH
+                + shape["disk_gb"] * self._DISK_USD_PER_GB_MONTH
+            )
+            services.append(
+                DeploymentPlanService(
+                    name=node.id,
+                    type=node.type,
+                    estimated_cpu=shape["cpu"],
+                    estimated_ram_gb=shape["ram_gb"],
+                    estimated_disk_gb=shape["disk_gb"],
+                    estimated_cost_usd_month=round(cost, 2),
+                )
+            )
+
+        total_cost = round(sum(s.estimated_cost_usd_month for s in services), 2)
+
+        # Build time: Kaniko parallel-builds one Job per buildable service
+        # (api + frontend at most today). Empirically observed durations
+        # on DGCUSUSSBXAKS01:
+        #   - Cache hit (same repo + ref):  ~1.5 min
+        #   - Cold build (Node/Next.js):    ~5 min
+        #   - Cold build (Python/FastAPI):  ~3 min
+        # Since builds run concurrently, wall clock is max(build_i), not
+        # sum. Assume 4 min per service, capped by parallelism.
+        buildable = sum(1 for n in graph.nodes if n.type in ("api", "frontend", "web"))
+        build_minutes = 4 if buildable > 0 else 0
+        # +1 min per additional service beyond 2 to account for quota
+        # contention when >2 services build in parallel.
+        if buildable > 2:
+            build_minutes += (buildable - 2)
+
+        return DeploymentPlan(
+            services=services,
+            estimated_cost_usd_month=total_cost,
+            estimated_build_minutes=build_minutes,
+            pricing_source="aks_shared_pool_list_price",
+            pricing_note=(
+                "Estimated from resource requests declared in Deplot's "
+                "manifests × Azure D-series list rates (CPU $25/core-mo, "
+                "RAM $3.50/GB-mo, Premium SSD $0.15/GB-mo). Ignores egress, "
+                "load balancer, and shared-cluster amortization."
+            ),
+        )
 
 
 class YamlGeneratorService(BaseService):
