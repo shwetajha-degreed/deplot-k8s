@@ -340,6 +340,11 @@ export default function HomePage() {
         const st = await api.getDeploymentStatus(id);
         setDeployStatus(st);
         finalStatus = st;
+        // Live-track the checklist off the backend's authoritative stage
+        // instead of counting SSE log lines.
+        if (typeof st.deploy_ui_stage_index === "number") {
+          setDeployStage(st.deploy_ui_stage_index);
+        }
         if (st.status === "succeeded" || st.status === "failed") break;
         await new Promise((r) => setTimeout(r, 3000));
       }
@@ -354,7 +359,9 @@ export default function HomePage() {
         setDeployStage(failedIndex);
         unlockWatchAndHeal();
       } else {
-        setDeployStage(DEPLOY_STAGES.length - 1);
+        // Push PAST the last index so every row (including "Deployment
+        // complete") is `i < deployStage` and shows the green checkmark.
+        setDeployStage(DEPLOY_STAGES.length);
         unlockWatchAndHeal();
       }
 
@@ -390,8 +397,12 @@ export default function HomePage() {
               status?: string;
               pipeline_state?: string;
               stage?: string;
+              deploy_ui_stage_index?: number;
             };
             setDeployStatus((prev) => ({ ...prev, ...data }));
+            if (typeof data.deploy_ui_stage_index === "number") {
+              setDeployStage(data.deploy_ui_stage_index);
+            }
             if (data.status === "failed") {
               setDeployFailed(true);
             }
@@ -403,7 +414,9 @@ export default function HomePage() {
           try {
             const data = JSON.parse(ev.data) as { status?: string };
             if (data.status !== "failed") {
-              setDeployStage(DEPLOY_STAGES.length - 1);
+              // Push PAST the last index so `i < deployStage` includes the
+              // final "Deployment complete" row (checkmark instead of active).
+              setDeployStage(DEPLOY_STAGES.length);
             }
           } catch {
             /* ignore */
@@ -858,7 +871,7 @@ export default function HomePage() {
                     </div>
                   </Card>
                 )}
-                {deployStatus && !demoMode && (
+                {deployStatus && !demoMode && deployStatus.status === "succeeded" && (
                   <Card className="mt-4">
                     <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
                       Kubernetes deployment
