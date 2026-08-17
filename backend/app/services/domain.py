@@ -333,18 +333,13 @@ class YamlGeneratorService(BaseService):
         return manifests
 
     def validate(self, stack: StackDetection, config: K8sConfig) -> ValidationReport:
+        # Deplot injects DATABASE_URL, REDIS_URL, TYPESENSE_* etc. into the
+        # app container's env when the corresponding dep is detected — so
+        # they're never "missing" from the runtime standpoint even if a
+        # regex over source didn't find them. The old warning fired on
+        # every deploy of a repo whose DATABASE_URL usage lives in a file
+        # we didn't scan, which was noise.
         issues: list[ValidationIssue] = []
-        required = {"DATABASE_URL"} if stack.database else set()
-        missing = required - set(stack.detected_env_vars)
-        for var in missing:
-            issues.append(
-                ValidationIssue(
-                    severity="warning",
-                    code="MISSING_ENV",
-                    message=f"Environment variable {var} not detected in source",
-                    field=var,
-                )
-            )
         if not config.manifests:
             issues.append(
                 ValidationIssue(

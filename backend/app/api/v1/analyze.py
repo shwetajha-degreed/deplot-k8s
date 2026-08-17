@@ -160,7 +160,38 @@ async def analyze_repo(body: AnalyzeRequest):
             session.tree_paths = github.get_last_tree_paths()[:2000]
         except Exception:
             session.tree_paths = []
-    session.required_env = _scan_required_env(files)
+    # Broaden the env-var scan beyond the key_patterns bucket. That bucket
+    # is optimized for stack detection (pyproject, package.json, ...) but
+    # env vars live in ANY source file — dev-velocity's OPENAI_API_KEY sits
+    # in ai_insights.py which isn't in key_patterns. Do a second pass: fetch
+    # up to N Python/JS/TS files from the tree and scan them for env refs
+    # only (content isn't stored on the session).
+    scan_files: dict[str, str] = dict(files)
+    if hasattr(github, "get_last_tree_paths"):
+        paths = github.get_last_tree_paths()
+        # Bounded to avoid fanning out on huge repos. 40 files ≈ one round
+        # of parallel-ish GitHub API calls; every hit is a small text file.
+        _MAX_SCAN_FILES = 40
+        source_paths = [
+            p for p in paths
+            if p.endswith((".py", ".js", ".jsx", ".ts", ".tsx", ".mjs"))
+            and p not in scan_files
+            and "node_modules/" not in p
+            and "/dist/" not in p
+            and "/build/" not in p
+            and "/.next/" not in p
+            and "/tests/" not in p
+            and "test_" not in p.rsplit("/", 1)[-1]
+        ][:_MAX_SCAN_FILES]
+        try:
+            owner, repo = github._parse_github_url(str(body.repo_url))
+            for p in source_paths:
+                content = await github._fetch_raw(owner, repo, p, body.github_token)
+                if content:
+                    scan_files[p] = content
+        except Exception:
+            pass
+    session.required_env = _scan_required_env(scan_files)
     session.status = SessionStatus.READY
     session_store.save(session)
 
