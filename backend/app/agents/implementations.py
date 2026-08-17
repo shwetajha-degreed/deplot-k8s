@@ -11,12 +11,28 @@ class RepositoryAnalyzerAgent(BaseAgent[StackDetection]):
     prompt_file = "repository_analyzer.md"
 
     async def run(self, context: AgentContext) -> StackDetection:
+        import asyncio
+
         files = context.payload.get("files", {})
         service = AnalysisService()
         stack = service.detect_stack(files)
         gemini = GeminiClient(self._settings)
         if gemini.enabled:
-            stack = await service.enrich_with_llm(stack, files, gemini)
+            # Bound the LLM enrichment. Gemini's median latency on the
+            # analyze_stack prompt is ~3-5s, but P99 (or a stuck
+            # generate_content_async on a large file tree) is unbounded
+            # — it has no built-in HTTP timeout. Envoy's upstream timeout
+            # is 15s, so a 25s Gemini call surfaces to the wizard as a
+            # 504 with no useful body. Cap at 10s and fall back to the
+            # regex-only stack detection, which is fully populated by
+            # detect_stack() above. LLM adds framework/runtime nuance
+            # but is not load-bearing for the wizard to proceed.
+            try:
+                stack = await asyncio.wait_for(
+                    service.enrich_with_llm(stack, files, gemini), timeout=10
+                )
+            except asyncio.TimeoutError:
+                pass
         return stack
 
 
