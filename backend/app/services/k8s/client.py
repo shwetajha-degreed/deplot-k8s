@@ -28,6 +28,16 @@ from .manifests import (
 # Field manager used for server-side apply; K8s attributes ownership by this name.
 _FIELD_MANAGER = "deplot"
 
+# kubernetes-python's `patch_namespaced_*(..., force=True, field_manager=...)`
+# does NOT send Content-Type: application/apply-patch+yaml by default — it
+# sends application/strategic-merge-patch+json, and the API server silently
+# ignores the `force` query param outside SSA. Passing `_content_type`
+# explicitly forces the request to go out as real SSA, so force=True is
+# actually meaningful and the server will steal fields owned by other
+# managers (e.g. `OpenAPI-Generator` for resources created via the
+# imperative create_* path on the first deploy).
+_SSA_HEADERS: dict[str, Any] = {"_content_type": "application/apply-patch+yaml"}
+
 
 class KubernetesService(BaseService):
     name = "kubernetes"
@@ -91,6 +101,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespace(
                         name=name, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "Deployment":
@@ -98,6 +109,7 @@ class KubernetesService(BaseService):
                     self._apps().patch_namespaced_deployment(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "Service":
@@ -105,6 +117,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespaced_service(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "Secret":
@@ -112,6 +125,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespaced_secret(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "PersistentVolumeClaim":
@@ -119,6 +133,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespaced_persistent_volume_claim(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "ResourceQuota":
@@ -126,6 +141,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespaced_resource_quota(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "NetworkPolicy":
@@ -133,6 +149,7 @@ class KubernetesService(BaseService):
                     self._networking().patch_namespaced_network_policy(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "Job":
@@ -143,6 +160,7 @@ class KubernetesService(BaseService):
                     self._core().patch_namespaced_service_account(
                         name=name, namespace=ns, body=manifest,
                         field_manager=_FIELD_MANAGER, force=True,
+                        **_SSA_HEADERS,
                     )
                 )
             if kind == "HTTPRoute":
@@ -151,6 +169,7 @@ class KubernetesService(BaseService):
                     group=group, version=version, namespace=ns,
                     plural="httproutes", name=name, body=manifest,
                     field_manager=_FIELD_MANAGER, force=True,
+                    **_SSA_HEADERS,
                 )
             if kind == "Cluster" and ref.api_version.startswith("postgresql.cnpg.io/"):
                 group, version = ref.api_version.split("/", 1)
@@ -158,6 +177,7 @@ class KubernetesService(BaseService):
                     group=group, version=version, namespace=ns,
                     plural="clusters", name=name, body=manifest,
                     field_manager=_FIELD_MANAGER, force=True,
+                    **_SSA_HEADERS,
                 )
         except ApiException as exc:
             # 404 = resource doesn't exist yet (expected on first apply)
