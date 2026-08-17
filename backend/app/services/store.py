@@ -146,23 +146,55 @@ class PostgresStore(Generic[T]):
             return self._fallback.delete(item_id)
 
 
-def _make_stores(database_url: str):
-    return (
-        PostgresStore("deplot_sessions", AnalysisSession, database_url),
-        PostgresStore("deplot_deployments", Deployment, database_url),
-        PostgresStore("deplot_incidents", Incident, database_url),
-    )
+class StoreProxy(Generic[T]):
+    """Forwards to a swappable backend so `from ... import session_store`
+    keeps working after init_stores() upgrades from memory to Postgres.
+
+    Without this proxy, every caller that did `from app.services.store
+    import session_store` captured a local reference to the initial
+    InMemoryStore at import time. When init_stores() later rebound the
+    module-level name to a PostgresStore, those callers kept writing to
+    the in-memory instance — so sessions vanished on backend restart.
+    """
+
+    def __init__(self, backend: InMemoryStore[T] | PostgresStore[T]) -> None:
+        self._backend: InMemoryStore[T] | PostgresStore[T] = backend
+
+    def _swap(self, backend: InMemoryStore[T] | PostgresStore[T]) -> None:
+        self._backend = backend
+
+    def save(self, item: T) -> T:
+        return self._backend.save(item)
+
+    def get(self, item_id: UUID) -> T | None:
+        return self._backend.get(item_id)
+
+    def list_all(self) -> list[T]:
+        return self._backend.list_all()
+
+    def delete(self, item_id: UUID) -> bool:
+        return self._backend.delete(item_id)
 
 
-def init_stores(database_url: str):
-    global session_store, deployment_store, incident_store
-    session_store, deployment_store, incident_store = _make_stores(database_url)
+def init_stores(database_url: str) -> None:
+    """Upgrade the module-level proxies from memory to Postgres-backed.
+
+    Safe to call multiple times; each call rebinds the proxies' backends.
+    All existing importers of session_store / deployment_store /
+    incident_store see the upgrade immediately because they hold the
+    proxy, not the underlying backend.
+    """
+    session_store._swap(PostgresStore("deplot_sessions", AnalysisSession, database_url))
+    deployment_store._swap(PostgresStore("deplot_deployments", Deployment, database_url))
+    incident_store._swap(PostgresStore("deplot_incidents", Incident, database_url))
 
 
-# Default in-memory until bootstrap calls init_stores
-session_store: InMemoryStore[AnalysisSession] | PostgresStore[AnalysisSession] = InMemoryStore()
-deployment_store: InMemoryStore[Deployment] | PostgresStore[Deployment] = InMemoryStore()
-incident_store: InMemoryStore[Incident] | PostgresStore[Incident] = InMemoryStore()
+# Default in-memory until bootstrap calls init_stores. These are the
+# module-level names every caller imports; init_stores() mutates their
+# backend rather than rebinding the name.
+session_store: StoreProxy[AnalysisSession] = StoreProxy(InMemoryStore())
+deployment_store: StoreProxy[Deployment] = StoreProxy(InMemoryStore())
+incident_store: StoreProxy[Incident] = StoreProxy(InMemoryStore())
 
 
 class OpsTimelineStore:
