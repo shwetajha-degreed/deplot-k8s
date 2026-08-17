@@ -88,7 +88,7 @@ class PostgresStore(Generic[T]):
                         VALUES (%s, %s, NOW())
                         ON CONFLICT (id) DO UPDATE SET payload = EXCLUDED.payload, updated_at = NOW()
                         """,
-                        (str(item.id), Json(json.loads(item.model_dump_json(mode="json")))),
+                        (str(item.id), Json(item.model_dump(mode="json"))),
                     )
             conn.close()
             return item
