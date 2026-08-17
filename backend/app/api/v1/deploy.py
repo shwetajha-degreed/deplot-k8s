@@ -1,4 +1,5 @@
 import asyncio
+import json
 from datetime import datetime
 from pathlib import Path
 from uuid import UUID
@@ -129,6 +130,57 @@ def _override_service_port(manifests: list[dict], service_name: str, port: int) 
                 for ref in rule.get("backendRefs") or []:
                     if ref.get("name") == service_name:
                         ref["port"] = port
+
+
+def _rewrite_deployment_images(
+    manifests: list[dict], registry: str, slug: str, build_tag: str
+) -> None:
+    """Replace `{registry}/{slug}-<svc>:...` tags with the per-deploy tag.
+
+    Yaml generator emits `:latest` in fallback manifests, and Gemini's
+    prompt output may too. We swap in the immutable build_tag so every
+    deploy of the same repo produces a different image STRING — SSA
+    sees a spec diff and rolls the pods. Without this, redeploys would
+    push a new digest under `:latest` but the Deployment wouldn't
+    notice.
+    """
+    prefix = f"{registry}/{slug}-"
+    for manifest in manifests:
+        if not isinstance(manifest, dict) or manifest.get("kind") != "Deployment":
+            continue
+        containers = (
+            (((manifest.get("spec") or {}).get("template") or {}).get("spec") or {})
+            .get("containers")
+            or []
+        )
+        for container in containers:
+            image = container.get("image") or ""
+            if not image.startswith(prefix):
+                continue
+            # `{prefix}{svc}:{tag}` or `{prefix}{svc}@sha256:...`
+            repo_part = image.rsplit(":", 1)[0] if ":" in image.split("/")[-1] else image
+            container["image"] = f"{repo_part}:{build_tag}"
+
+
+def _annotate_deployment_templates(
+    manifests: list[dict], key: str, value: str
+) -> None:
+    """Set an annotation on every Deployment's pod template.
+
+    Used to force a rollout when data outside the pod spec changes —
+    the runtime-env Secret, for example. `envFrom` reads the Secret
+    only at pod start; updating the Secret in place leaves running
+    pods on stale values. Annotating the template with a hash of the
+    Secret's data means any change → new annotation → SSA diff on the
+    template → rollout.
+    """
+    for manifest in manifests:
+        if not isinstance(manifest, dict) or manifest.get("kind") != "Deployment":
+            continue
+        template = ((manifest.get("spec") or {}).get("template") or {})
+        meta = template.setdefault("metadata", {})
+        annotations = meta.setdefault("annotations", {})
+        annotations[key] = value
 
 
 def _inject_env_into_deployments(manifests: list[dict], env: dict[str, str]) -> None:
@@ -554,6 +606,12 @@ async def _execute_deploy_pipeline(
     settings = get_settings()
     slug = deployment.repo_slug or "app"
     namespace = deployment.namespace
+    # Immutable per-pipeline image tag: `d<8-hex>` from the Deployment's UUID.
+    # Every /deploy click produces a distinct tag, so the Deployment's
+    # image STRING changes on every deploy — that's the signal SSA uses to
+    # decide whether to roll pods. Without this every redeploy pushed a new
+    # digest under `:latest` and pods happily kept running the old code.
+    build_tag = f"d{str(deployment.id).replace('-', '')[:8]}"
 
     if not body.demo_mode and session.repo_url:
         services: list[str] = []
@@ -671,6 +729,7 @@ async def _execute_deploy_pipeline(
                         dockerfile=dockerfile,
                         build_args=svc_build_args,
                         github_token=session.github_token,
+                        build_tag=build_tag,
                     )
                 )
             submissions = await asyncio.gather(*build_coros)
@@ -735,6 +794,13 @@ async def _execute_deploy_pipeline(
         deps_env.update(ts_result["env"])
 
     config = await yaml_svc.generate(session.stack, session.repo_url)
+    # Point Deployments at the immutable per-pipeline image tag so SSA
+    # actually rolls pods on redeploy. Must happen BEFORE env injection
+    # and port rewrites — those mutate the same containers.
+    if not body.demo_mode:
+        _rewrite_deployment_images(
+            config.manifests, settings.acr_registry, slug, build_tag
+        )
     _inject_env_into_deployments(config.manifests, deps_env)
     # Rewrite ports to match the actual EXPOSE from each service's Dockerfile
     # (defaults would leave uvicorn on 8088 unreachable by an 8000 probe).
@@ -747,6 +813,17 @@ async def _execute_deploy_pipeline(
     # `process.env.*` at runtime. Uses `optional: true` on the ref so the
     # Deployment doesn't block if the Secret is empty.
     _mount_runtime_env(config.manifests)
+    # Annotate the pod template with a hash of the runtime-env values so
+    # a change to any KEY=VALUE in the wizard forces a rollout. envFrom
+    # is only read at pod start; without this annotation, updating the
+    # Secret in place leaves the running pod on stale env values.
+    if not body.demo_mode:
+        import hashlib
+        env_material = json.dumps(body.runtime_env or {}, sort_keys=True)
+        env_hash = hashlib.sha256(env_material.encode("utf-8")).hexdigest()[:16]
+        _annotate_deployment_templates(
+            config.manifests, "deplot.io/runtime-env-hash", env_hash
+        )
     if not body.demo_mode and body.runtime_env:
         import base64
         secret_manifest = {

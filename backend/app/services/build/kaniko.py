@@ -45,14 +45,37 @@ class KanikoBuildService(BaseService):
         git_ref: str = "main",
         build_args: dict[str, str] | None = None,
         github_token: str | None = None,
+        build_tag: str | None = None,
     ) -> dict[str, Any]:
         # SA must exist before the Job pod schedules; auto-create so callers
         # don't have to pre-provision every namespace.
         await self._ensure_service_account(namespace)
 
-        image = f"{self._settings.acr_registry}/{slug}-{service_name}:latest"
+        repo = f"{self._settings.acr_registry}/{slug}-{service_name}"
+        # An immutable per-build tag (build_tag) is what the Deployment
+        # references so every deploy triggers a rollout — a plain `:latest`
+        # push changes the digest, but the Deployment's image STRING is
+        # unchanged, so SSA sees no diff and pods keep running the old code.
+        # We also push `:latest` for humans debugging by tag.
+        primary_image = f"{repo}:{build_tag}" if build_tag else f"{repo}:latest"
+        destinations = [primary_image]
+        if build_tag:
+            destinations.append(f"{repo}:latest")
+
+        # Job name gets the build_tag suffix (not just repo@ref hash) so
+        # concurrent redeploys don't kill each other's builds via
+        # _delete_job_if_exists.
+        # ref_hash is still used for the per-Kaniko-run GitHub token Secret
+        # name so multiple concurrent builds don't clobber each other's
+        # token Secrets. Job name uses build_tag when present because it's
+        # unique per pipeline run (ref_hash is deterministic per repo@ref
+        # and would collide across concurrent deploys of the same repo).
         ref_hash = hashlib.sha1(f"{repo_url}@{git_ref}".encode()).hexdigest()[:8]
-        job_name = f"build-{slug}-{service_name}-{ref_hash}"
+        job_name = (
+            f"build-{slug}-{service_name}-{build_tag}"
+            if build_tag
+            else f"build-{slug}-{service_name}-{ref_hash}"
+        )
 
         # Private repos: store the PAT in a Secret so the git-clone init
         # container can read it via env var (not baked into argv where
@@ -65,7 +88,7 @@ class KanikoBuildService(BaseService):
         job = self._build_job_manifest(
             job_name=job_name,
             namespace=namespace,
-            image=image,
+            destinations=destinations,
             repo_url=repo_url,
             git_ref=git_ref,
             dockerfile=dockerfile,
@@ -85,7 +108,7 @@ class KanikoBuildService(BaseService):
             logs = [f"job submit failed: {exc.reason}", str(exc)]
 
         return {
-            "image": image,
+            "image": primary_image,
             "job_name": job_name,
             "namespace": namespace,
             "status": status,
@@ -248,7 +271,7 @@ class KanikoBuildService(BaseService):
         *,
         job_name: str,
         namespace: str,
-        image: str,
+        destinations: list[str],
         repo_url: str,
         git_ref: str,
         dockerfile: str,
@@ -376,7 +399,7 @@ class KanikoBuildService(BaseService):
                                 "args": [
                                     "--dockerfile=/workspace/Dockerfile.deplot",
                                     "--context=/workspace",
-                                    f"--destination={image}",
+                                    *[f"--destination={d}" for d in destinations],
                                     "--cache=true",
                                     "--use-new-run",
                                     *[f"--build-arg={k}={v}" for k, v in build_args.items()],
