@@ -559,6 +559,11 @@ async def _run_deploy_pipeline_safe(
     except HTTPException as exc:
         _mark_pipeline_failed(deployment_id, exc.detail)
     except Exception as exc:
+        # Log full traceback so we can see where in the pipeline the
+        # unexpected error came from. `_mark_pipeline_failed` only
+        # captures repr(exc); the tb is what tells us the file+line.
+        import traceback
+        traceback.print_exc()
         _mark_pipeline_failed(deployment_id, f"unexpected: {exc!s}"[:2000])
 
 
