@@ -27,7 +27,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     });
   } catch {
     throw new Error(
-      "Failed to reach API — check the URL has no trailing comma, or try again.",
+      "Could not reach the Deplot API. Please try again in a moment.",
     );
   }
   if (!res.ok) {

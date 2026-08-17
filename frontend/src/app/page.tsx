@@ -336,16 +336,32 @@ export default function HomePage() {
       // Poll for up to ~12 min at 3s intervals. Covers:
       //   builds (~2m cached, ~5m fresh) + deps provision (~2m) +
       //   K8s apply + heal-loop 60s stable hold before SUCCEEDED.
+      // Transient fetch errors (gateway blips, backend rollovers) MUST NOT
+      // kill the poll — the actual deploy runs on the backend and continues
+      // regardless. We only surface an error if we can't reach the backend
+      // for several consecutive attempts.
+      let consecutiveErrors = 0;
+      const MAX_CONSECUTIVE_ERRORS = 20; // ~60s of unreachable
       for (let attempt = 0; attempt < 240; attempt++) {
-        const st = await api.getDeploymentStatus(id);
-        setDeployStatus(st);
-        finalStatus = st;
-        // Live-track the checklist off the backend's authoritative stage
-        // instead of counting SSE log lines.
-        if (typeof st.deploy_ui_stage_index === "number") {
-          setDeployStage(st.deploy_ui_stage_index);
+        try {
+          const st = await api.getDeploymentStatus(id);
+          consecutiveErrors = 0;
+          setDeployStatus(st);
+          finalStatus = st;
+          // Live-track the checklist off the backend's authoritative stage
+          // instead of counting SSE log lines.
+          if (typeof st.deploy_ui_stage_index === "number") {
+            setDeployStage(st.deploy_ui_stage_index);
+          }
+          if (st.status === "succeeded" || st.status === "failed") break;
+        } catch {
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            throw new Error(
+              "Lost connection to the deployment API. The deploy is still running in the cluster — refresh to reattach.",
+            );
+          }
         }
-        if (st.status === "succeeded" || st.status === "failed") break;
         await new Promise((r) => setTimeout(r, 3000));
       }
 
