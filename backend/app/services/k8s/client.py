@@ -247,26 +247,39 @@ class KubernetesService(BaseService):
     async def import_services(self, manifests_yaml: str, namespace: str) -> dict[str, Any]:
         """Parse a multi-doc YAML string and apply each doc."""
         docs = [d for d in yaml.safe_load_all(manifests_yaml) if d]
-        results: list[dict[str, Any]] = []
+        # Each entry is (source_doc, applied_response_or_None). We keep the
+        # source doc so the "applied" line still has a name/kind even when
+        # kubernetes-python's SSA path returns None on success (which can
+        # happen for CustomResource kinds like HTTPRoute / CNPG Cluster
+        # under _content_type='application/apply-patch+yaml').
+        results: list[tuple[dict[str, Any], dict[str, Any] | None]] = []
         errors: list[str] = []
         for doc in docs:
             meta = doc.setdefault("metadata", {})
-            # Namespace/cluster-scoped resources keep whatever they specified.
             if doc.get("kind") not in {"Namespace"} and not meta.get("namespace"):
                 meta["namespace"] = namespace
             try:
-                results.append(await self._apply(doc))
+                results.append((doc, await self._apply(doc)))
             except ApiException as exc:
                 errors.append(f"{doc.get('kind')}/{meta.get('name')}: {exc.reason}")
+
+        def _line(doc: dict[str, Any], applied: dict[str, Any] | None) -> str:
+            # Fall back to the source doc's kind/name when the applied
+            # response is None or missing metadata — SSA-succeeded is
+            # still success, we just can't echo the server's view of it.
+            src = applied if isinstance(applied, dict) else doc
+            kind = src.get("kind") or doc.get("kind") or "?"
+            name = ((src.get("metadata") or {}).get("name")) or (
+                (doc.get("metadata") or {}).get("name")
+            ) or "?"
+            return f"{kind}/{name} applied"
+
         return {
             "ok": not errors,
             "namespace": namespace,
             "applied": len(results),
             "errors": errors,
-            "stdout": "\n".join(
-                f"{r.get('kind', '?')}/{(r.get('metadata') or {}).get('name', '?')} applied"
-                for r in results
-            ),
+            "stdout": "\n".join(_line(d, r) for d, r in results),
             "stderr": "\n".join(errors),
         }
 
