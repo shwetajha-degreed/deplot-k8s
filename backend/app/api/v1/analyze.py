@@ -134,11 +134,33 @@ async def analyze_repo(body: AnalyzeRequest):
                 str(body.repo_url), github_token=body.github_token
             )
         except Exception as exc:
+            # Distinguish a real perm error from a transient GitHub-side
+            # blip so the wizard's error banner points users at the right
+            # thing to check.
+            msg = str(exc)
+            code = "REPO_FETCH_FAILED"
+            hint = ""
+            if "404" in msg:
+                hint = (
+                    " GitHub returned 404 — this usually means either the "
+                    "token can't see this repo/branch (Contents: Read "
+                    "permission on fine-grained tokens, or `repo` scope on "
+                    "classic tokens), or GitHub is degraded — check "
+                    "https://www.githubstatus.com/ and retry."
+                )
+            elif "401" in msg or "403" in msg:
+                hint = " Token appears invalid or lacks required scopes."
+            elif "5" in msg[:5] or "timeout" in msg.lower():
+                hint = (
+                    " GitHub appears to be degraded — check "
+                    "https://www.githubstatus.com/ and retry in a moment."
+                )
+                code = "GITHUB_DEGRADED"
             raise HTTPException(
                 status_code=422,
                 detail={
-                    "message": f"Could not fetch repository: {exc}",
-                    "code": "REPO_FETCH_FAILED",
+                    "message": f"Could not fetch repository: {exc}.{hint}",
+                    "code": code,
                 },
             ) from exc
     else:

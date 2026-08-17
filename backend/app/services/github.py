@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import httpx
@@ -50,9 +51,28 @@ class GitHubService(BaseService):
             self._last_default_branch = (
                 meta.json().get("default_branch") or "main"
             )
-            resp = await client.get(
-                f"{api_base}/git/trees/{self._last_default_branch}?recursive=1"
-            )
+            # Retry the tree endpoint on transient GitHub failures.
+            # During GitHub incidents (see githubstatus.com) the tree
+            # backend can 5xx or even 404 while /repos still serves 200
+            # — different backend paths. `/repos` already succeeded here,
+            # so a 404 on the tree endpoint isn't "repo not visible" —
+            # it's transient. Retry 3× with exponential backoff.
+            tree_url = f"{api_base}/git/trees/{self._last_default_branch}?recursive=1"
+            resp = None
+            for attempt in range(3):
+                candidate = await client.get(tree_url)
+                if candidate.status_code < 400:
+                    resp = candidate
+                    break
+                # 5xx or (post-/repos-success) 404 → transient. 401/403
+                # are real perm errors; bail immediately.
+                if candidate.status_code in (401, 403):
+                    resp = candidate
+                    break
+                if attempt == 2:
+                    resp = candidate
+                    break
+                await asyncio.sleep(0.5 * (2 ** attempt))
             resp.raise_for_status()
             tree = resp.json().get("tree", [])
 
