@@ -51,21 +51,32 @@ class GitHubService(BaseService):
             self._last_default_branch = (
                 meta.json().get("default_branch") or "main"
             )
+            # Resolve branch → tree SHA via /commits before hitting
+            # /git/trees. Passing a branch name directly to /git/trees
+            # works for most repos but 404s on some (GitHub's tree
+            # endpoint documents `tree_sha` in the path, and the
+            # branch-name shortcut is not universally supported — same
+            # token that succeeds on /commits/main can 404 on
+            # /git/trees/main for the same repo). Handing it a real
+            # tree SHA sidesteps that.
+            commit_resp = await client.get(f"{api_base}/commits/{self._last_default_branch}")
+            commit_resp.raise_for_status()
+            tree_sha = (
+                (commit_resp.json().get("commit") or {}).get("tree") or {}
+            ).get("sha") or self._last_default_branch
+
             # Retry the tree endpoint on transient GitHub failures.
-            # During GitHub incidents (see githubstatus.com) the tree
-            # backend can 5xx or even 404 while /repos still serves 200
-            # — different backend paths. `/repos` already succeeded here,
-            # so a 404 on the tree endpoint isn't "repo not visible" —
-            # it's transient. Retry 3× with exponential backoff.
-            tree_url = f"{api_base}/git/trees/{self._last_default_branch}?recursive=1"
+            # `/repos` and `/commits` already succeeded, so a 404 here
+            # is not "repo not visible" — it's transient. Retry 3×
+            # with exponential backoff.
+            tree_url = f"{api_base}/git/trees/{tree_sha}?recursive=1"
             resp = None
             for attempt in range(3):
                 candidate = await client.get(tree_url)
                 if candidate.status_code < 400:
                     resp = candidate
                     break
-                # 5xx or (post-/repos-success) 404 → transient. 401/403
-                # are real perm errors; bail immediately.
+                # 5xx / transient 404 → retry. 401/403 → real, bail.
                 if candidate.status_code in (401, 403):
                     resp = candidate
                     break
