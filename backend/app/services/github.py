@@ -122,9 +122,34 @@ class GitHubService(BaseService):
             "index.js",
             "index.ts",
         )
-        for path in self._last_tree_paths:
-            if any(k in path for k in key_patterns):
-                files[path] = await self._fetch_raw(owner, repo, path, token)
+        # Skip vendor/build directories — matching key_patterns literally
+        # on `package.json` in node_modules produces hundreds of pointless
+        # fetches per Node repo and blows Envoy's 15s upstream timeout on
+        # analyze. Same reasoning for dist/build/.next.
+        def _skip(p: str) -> bool:
+            return any(
+                seg in p
+                for seg in ("node_modules/", "/dist/", "/build/", "/.next/", "vendor/")
+            )
+
+        matched = [
+            p for p in self._last_tree_paths
+            if not _skip(p) and any(k in p for k in key_patterns)
+        ]
+        # Parallel with concurrency cap — sequential await inside a for-loop
+        # was making analyze take (matched_count × ~500ms) instead of
+        # ceil(matched_count / 8) × ~500ms. 8 in-flight is well under
+        # GitHub's 5000/hr primary rate limit for authenticated calls.
+        sem = asyncio.Semaphore(8)
+
+        async def _fetch_one(p: str) -> tuple[str, str]:
+            async with sem:
+                return p, await self._fetch_raw(owner, repo, p, token)
+
+        results = await asyncio.gather(*[_fetch_one(p) for p in matched])
+        for p, content in results:
+            if content:
+                files[p] = content
         return files
 
     def get_last_tree_paths(self) -> list[str]:

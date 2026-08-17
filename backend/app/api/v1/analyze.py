@@ -212,8 +212,28 @@ async def analyze_repo(body: AnalyzeRequest):
         ][:_MAX_SCAN_FILES]
         try:
             owner, repo = github._parse_github_url(str(body.repo_url))
-            for p in source_paths:
-                content = await github._fetch_raw(owner, repo, p, body.github_token)
+            # Parallel with concurrency cap: 40 sequential httpx calls to
+            # api.github.com (~500ms each) put analyze over Envoy's 15s
+            # upstream timeout for repos with many matched source files
+            # (e.g. maestro_forge). asyncio.gather with a small semaphore
+            # cuts wall-clock to seconds while staying under GitHub's
+            # primary rate-limit (5000/hr for authenticated).
+            import asyncio as _asyncio
+            sem = _asyncio.Semaphore(8)
+
+            async def _fetch_bounded(path: str):
+                async with sem:
+                    try:
+                        return path, await github._fetch_raw(
+                            owner, repo, path, body.github_token
+                        )
+                    except Exception:
+                        return path, None
+
+            results = await _asyncio.gather(
+                *[_fetch_bounded(p) for p in source_paths]
+            )
+            for p, content in results:
                 if content:
                     scan_files[p] = content
         except Exception:
