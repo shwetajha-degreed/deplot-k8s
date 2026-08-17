@@ -688,34 +688,10 @@ export default function HomePage() {
                   <YamlPreview title="namespace.yaml" content={activeYaml.import} />
                   <YamlPreview title="workloads.yaml" content={activeYaml.workloads} />
                 </div>
-                {validation && !isPreviewStep && (
-                  <Card className="mt-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                        Pre-deploy validation
-                      </p>
-                      <Badge tone={validation.passed ? "success" : "warning"}>
-                        {validation.passed ? "Passed" : "Warnings"}
-                      </Badge>
-                    </div>
-                    <ul className="mt-3 space-y-2">
-                      {validation.issues.map((issue, i) => (
-                        <li key={i} className="flex gap-2 text-sm text-zinc-300">
-                          <Badge tone={issue.severity === "error" ? "critical" : "warning"}>
-                            {issue.code}
-                          </Badge>
-                          <span>{issue.message}</span>
-                        </li>
-                      ))}
-                    </ul>
-                    {!validation.passed && (
-                      <p className="mt-3 text-xs text-amber-400/90">
-                        Fix blockers before production deploy. Demo Mode will simulate the failure
-                        scenario for the AIOps loop.
-                      </p>
-                    )}
-                  </Card>
-                )}
+                {/* Pre-deploy validation card removed — it only checked
+                    NO_MANIFESTS, which always passed. Bring it back when
+                    we implement real preflight checks (hostname collision,
+                    quota headroom, base image reachable, ARGs match, ...). */}
                 <Card className="mt-6">
                   <label className="text-xs uppercase tracking-wider text-zinc-500">
                     Runtime environment (optional)
