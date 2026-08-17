@@ -34,6 +34,48 @@ _DEPLOT_MANAGED_ENV: frozenset[str] = frozenset(
 )
 
 
+# Match the local-dev fallback string an app assigns when the runtime env
+# is unset:
+#     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
+#     process.env.REACT_APP_API_URL || 'http://localhost:5000'
+#     import.meta.env.VITE_API_URL ?? `http://127.0.0.1:8000/api`
+# Captures the URL literal (quotes stripped). We read the PATH from it
+# so we can mirror the app's own convention when baking the build arg.
+_API_URL_FALLBACK_RE = re.compile(
+    r"""(?:NEXT_PUBLIC_API_URL|REACT_APP_API_URL|VITE_API_URL|API_URL|API_BASE)"""
+    r"""\s*(?:\?\?|\|\||:)\s*['"`]([^'"`]+)['"`]""",
+    re.IGNORECASE,
+)
+
+
+def _detect_api_url_path(files: dict[str, str]) -> str:
+    """Return the path portion (e.g. "/api/v1") the frontend expects
+    NEXT_PUBLIC_API_URL / REACT_APP_API_URL / VITE_API_URL to resolve to.
+
+    Scans the app's OWN fallback string — we mirror whatever convention
+    its author chose. Empty string means bake the bare origin.
+    """
+    for path, content in (files or {}).items():
+        if not content:
+            continue
+        low = path.lower()
+        if not low.endswith((".ts", ".tsx", ".js", ".jsx", ".mjs")):
+            continue
+        for match in _API_URL_FALLBACK_RE.finditer(content):
+            url = match.group(1).strip()
+            # Skip prod-looking URLs and empty strings; the LOCAL fallback
+            # is the signal we want. Prod URLs are baked at deploy time
+            # anyway and would be misleading.
+            if not url or not url.startswith(("http://localhost", "http://127.")):
+                continue
+            # Extract path after the host:port portion.
+            m = re.match(r"https?://[^/]+(/[^?#]*)?", url)
+            if not m:
+                continue
+            return (m.group(1) or "").rstrip("/")
+    return ""
+
+
 def _scan_required_env(files: dict[str, str]) -> list[str]:
     """Return env var names referenced by the app's source or documented
     in a .env.example / .env.sample / .env.template file.
@@ -239,6 +281,13 @@ async def analyze_repo(body: AnalyzeRequest):
         except Exception:
             pass
     session.required_env = _scan_required_env(scan_files)
+    # Mirror the frontend's own local-dev NEXT_PUBLIC_API_URL fallback
+    # path (e.g. /api/v1 or "") into the stack. Deploy will bake the
+    # baked API URL as `<origin><path>` so ${API_BASE}/health lands on
+    # whatever route the app author expected without Deplot needing to
+    # know FastAPI/Django/Express route conventions.
+    if session.stack:
+        session.stack.api_url_path = _detect_api_url_path(scan_files)
     session.status = SessionStatus.READY
     session_store.save(session)
 

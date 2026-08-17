@@ -654,11 +654,18 @@ async def _execute_deploy_pipeline(
             # the prefix from main.py routes, but that was fragile and
             # placed API-shape assumptions in the deploy tool. Simpler
             # contract wins.
+            # Mirror the frontend's own local-dev fallback path. Some
+            # apps expect NEXT_PUBLIC_API_URL to include the mount prefix
+            # (Showcase: `"http://localhost:8000/api/v1"`), others expect
+            # bare origin (dev-velocity). We detected which during
+            # analyze; here we compose accordingly so ${API_URL}/health
+            # lands on the right route without Deplot needing to know
+            # each framework's mounting convention.
+            api_path = (session.stack.api_url_path or "").strip("/")
+            api_origin = f"https://{slug}-api.{settings.base_domain}"
             api_url = (
-                f"https://{slug}-api.{settings.base_domain}"
-                if "api" in services
-                else ""
-            )
+                f"{api_origin}/{api_path}" if api_path else api_origin
+            ) if "api" in services else ""
 
             github = get_service("github")
             build_coros = []

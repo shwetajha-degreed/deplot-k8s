@@ -33,6 +33,17 @@ class StackDetection(BaseModel):
     confidence: float = 0.0
     raw_signals: dict[str, Any] = Field(default_factory=dict)
     analysis_summary: str | None = None
+    # The path portion of whatever the frontend expects
+    # NEXT_PUBLIC_API_URL / REACT_APP_API_URL / VITE_API_URL to point at,
+    # discovered by scanning the frontend for its own local-dev fallback:
+    #     process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api/v1"
+    #                                                              ^^^^^^^
+    # Apps that fall back to just `"http://localhost:8000"` (no path) get
+    # "" here — we bake the bare origin. Apps that include `/api/v1` in
+    # their fallback get `/api/v1` — we bake `origin/api/v1`. This mirrors
+    # whatever contract the app's author chose without Deplot needing to
+    # know FastAPI's or Django's route conventions.
+    api_url_path: str = ""
 
 
 class ArchitectureNode(BaseModel):
