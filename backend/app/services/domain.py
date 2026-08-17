@@ -306,7 +306,7 @@ class PlannerService(BaseService):
             estimated_cost_usd_month=total_cost,
             estimated_build_minutes=build_minutes,
             pricing_source="aks_shared_pool_list_price",
-            pricing_note="Azure list-price estimate. Actual spend varies.",
+            pricing_note="Estimated from resource requests declared in Deplot's manifests.",
         )
 
 

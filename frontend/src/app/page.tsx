@@ -604,7 +604,8 @@ export default function HomePage() {
                       autoComplete="off"
                     />
                     <p className="mt-2 text-xs text-zinc-500">
-                      Required for private repos. Not stored.
+                      Needs <code>repo:read</code> (or <code>contents:read</code> for a
+                      fine-grained token).
                     </p>
                   </div>
                   {demoMode && (
@@ -723,10 +724,10 @@ export default function HomePage() {
                     quota headroom, base image reachable, ARGs match, ...). */}
                 <Card className="mt-6">
                   <label className="text-xs uppercase tracking-wider text-zinc-500">
-                    Runtime environment (optional)
+                    Runtime Environment (optional)
                   </label>
                   <p className="mt-1 text-xs text-zinc-500">
-                    One <code>KEY=VALUE</code> per line. Never logged.
+                    One <code>KEY=VALUE</code> per line.
                   </p>
                   {requiredEnv.length > 0 && (
                     <div className="mt-3">
