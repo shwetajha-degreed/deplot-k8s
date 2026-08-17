@@ -161,12 +161,28 @@ class AnalysisService(BaseService):
         hostnames = hostnames_for_slug(slug)
 
         if stack.has_frontend:
+            # stack.framework is a shared field the Python detector also
+            # cross-writes to when no JS framework was matched (see
+            # detect_stack), so it can hold "fastapi" for a CRA-shaped
+            # frontend. Explicitly ignore backend-ish values here so the
+            # frontend card doesn't misidentify itself as the api's
+            # framework.
+            _fw = (stack.framework or "").lower()
+            _BACKEND_FWS = {"fastapi", "flask", "django", "python", "rails", "gin", "echo"}
+            if _fw == "nextjs":
+                frontend_tech = "Next.js"
+            elif _fw and _fw not in _BACKEND_FWS:
+                frontend_tech = stack.framework or "web"
+            elif (stack.language or "").lower() == "javascript":
+                frontend_tech = "React"
+            else:
+                frontend_tech = "web"
             nodes.append(
                 ArchitectureNode(
                     id="frontend",
                     label="Frontend",
                     type="frontend",
-                    technology="Next.js" if stack.framework == "nextjs" else stack.framework or "web",
+                    technology=frontend_tech,
                     hostname=hostnames["frontend"],
                 )
             )

@@ -630,6 +630,7 @@ export default function HomePage() {
                     nodes={activeArchitecture.nodes}
                     edges={activeArchitecture.edges}
                     healthOverrides={healthMap}
+                    showHealth={false}
                   />
                 </Card>
                 <div className="mt-6">

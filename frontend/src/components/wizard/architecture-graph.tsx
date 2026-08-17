@@ -41,6 +41,7 @@ const HEALTH_STYLES: Record<string, string> = {
 };
 
 interface ArchitectureGraphViewProps {
+  showHealth?: boolean;
   nodes: ArchNode[];
   edges: ArchEdge[];
   healthOverrides?: Record<string, string>;
@@ -52,6 +53,7 @@ export function ArchitectureGraphView({
   edges,
   healthOverrides = {},
   showHostnames = true,
+  showHealth = true,
 }: ArchitectureGraphViewProps) {
   const flowNodes: Node[] = useMemo(
     () =>
@@ -72,26 +74,28 @@ export function ArchitectureGraphView({
                 <p className="mt-1 text-[10px] uppercase tracking-wider text-zinc-500">
                   {n.technology ?? n.type}
                 </p>
-                <p
-                  className={`mt-2 text-[10px] font-medium uppercase ${
-                    health === "healthy"
-                      ? "text-emerald-400"
-                      : health === "critical"
-                        ? "text-red-400"
-                        : health === "degraded"
-                          ? "text-amber-400"
-                          : "text-zinc-500"
-                  }`}
-                >
-                  {health}
-                </p>
+                {showHealth && (
+                  <p
+                    className={`mt-2 text-[10px] font-medium uppercase ${
+                      health === "healthy"
+                        ? "text-emerald-400"
+                        : health === "critical"
+                          ? "text-red-400"
+                          : health === "degraded"
+                            ? "text-amber-400"
+                            : "text-zinc-500"
+                    }`}
+                  >
+                    {health}
+                  </p>
+                )}
               </div>
             ),
           },
           style: { background: "transparent", border: "none", padding: 0 },
         };
       }),
-    [nodes, healthOverrides, showHostnames],
+    [nodes, healthOverrides, showHostnames, showHealth],
   );
 
   const flowEdges: Edge[] = useMemo(
