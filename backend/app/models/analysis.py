@@ -87,6 +87,7 @@ class AnalyzeResponse(BaseModel):
     session_id: UUID
     status: SessionStatus
     stack: StackDetection | None = None
+    required_env: list[str] = Field(default_factory=list)
 
 
 class AnalysisSession(BaseModel):
@@ -104,5 +105,10 @@ class AnalysisSession(BaseModel):
     # All top-level and one-level-deep file paths in the repo. Compact
     # signal for entrypoint discovery without dragging in file contents.
     tree_paths: list[str] = Field(default_factory=list)
+    # Env vars the app reads via os.getenv / process.env / import.meta.env
+    # or declares in a .env.example. Passed to the frontend so the wizard
+    # can pre-populate the runtime-env textarea with KEY=... skeletons.
+    # Excludes anything Deplot injects itself (DATABASE_URL, REDIS_URL, ...).
+    required_env: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

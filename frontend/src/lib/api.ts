@@ -46,7 +46,11 @@ export const api = {
   health: () => request<{ status: string }>("/health"),
 
   analyze: (repoUrl: string | null, demoMode: boolean, githubToken?: string) =>
-    request<{ session_id: string; stack: Record<string, unknown> }>("/analyze", {
+    request<{
+      session_id: string;
+      stack: Record<string, unknown>;
+      required_env?: string[];
+    }>("/analyze", {
       method: "POST",
       body: JSON.stringify({
         repo_url: repoUrl,

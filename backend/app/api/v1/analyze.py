@@ -1,7 +1,95 @@
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+
+
+# Env vars Deplot injects itself — hide from the "required env" list so the
+# wizard's textarea doesn't ask users to supply them again.
+_DEPLOT_MANAGED_ENV: frozenset[str] = frozenset(
+    {
+        "DATABASE_URL",
+        "DATABASE_URL_SYNC",
+        "REDIS_URL",
+        "TYPESENSE_URL",
+        "TYPESENSE_HOST",
+        "TYPESENSE_PORT",
+        "TYPESENSE_PROTOCOL",
+        "TYPESENSE_API_KEY",
+        "PORT",
+        "HOST",
+        "HOSTNAME",
+        "NODE_ENV",
+        "PYTHONUNBUFFERED",
+        "PYTHONDONTWRITEBYTECODE",
+        "NEXT_PUBLIC_API_URL",
+        "REACT_APP_API_URL",
+        "VITE_API_URL",
+        "BACKEND_URL",
+        "PATH",
+        "HOME",
+        "USER",
+    }
+)
+
+
+def _scan_required_env(files: dict[str, str]) -> list[str]:
+    """Return env var names referenced by the app's source or documented
+    in a .env.example / .env.sample / .env.template file.
+
+    Detects:
+      - Python:  os.getenv("FOO") | os.environ["FOO"] | os.environ.get("FOO")
+      - Node/Vue/Next: process.env.FOO | process.env["FOO"]
+      - Vite:  import.meta.env.VITE_FOO
+      - .env.example style KEY=... lines
+
+    Filters out Deplot-managed env vars (DATABASE_URL, REDIS_URL, ...)
+    and standard container env (PATH, HOME, ...) so the wizard only
+    prompts for values the user actually needs to provide.
+    """
+    found: set[str] = set()
+
+    py_patterns = (
+        re.compile(r"os\.getenv\(\s*['\"]([A-Z_][A-Z0-9_]*)['\"]"),
+        re.compile(r"os\.environ\[\s*['\"]([A-Z_][A-Z0-9_]*)['\"]\s*\]"),
+        re.compile(r"os\.environ\.get\(\s*['\"]([A-Z_][A-Z0-9_]*)['\"]"),
+    )
+    js_patterns = (
+        re.compile(r"process\.env\.([A-Z_][A-Z0-9_]*)"),
+        re.compile(r"process\.env\[\s*['\"]([A-Z_][A-Z0-9_]*)['\"]\s*\]"),
+        re.compile(r"import\.meta\.env\.([A-Z_][A-Z0-9_]*)"),
+    )
+
+    for path, content in (files or {}).items():
+        text = content or ""
+        if not text:
+            continue
+        low = path.lower()
+        if low.endswith((".py", ".pyi")) or low.endswith(("config.py", "settings.py")):
+            patterns = py_patterns
+        elif low.endswith((".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs")):
+            patterns = js_patterns
+        else:
+            patterns = py_patterns + js_patterns
+        for pat in patterns:
+            found.update(pat.findall(text))
+
+        # .env.example (or .sample / .template) is the canonical source
+        # of truth when the repo ships one.
+        if any(marker in low for marker in (".env.example", ".env.sample", ".env.template")):
+            for line in text.splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" not in line:
+                    continue
+                key = line.split("=", 1)[0].strip()
+                if re.match(r"^[A-Z_][A-Z0-9_]*$", key):
+                    found.add(key)
+
+    filtered = [k for k in found if k not in _DEPLOT_MANAGED_ENV]
+    return sorted(filtered)
 
 from app.agents.orchestrator import AgentContext
 from app.api.deps import get_orchestrator
@@ -72,10 +160,16 @@ async def analyze_repo(body: AnalyzeRequest):
             session.tree_paths = github.get_last_tree_paths()[:2000]
         except Exception:
             session.tree_paths = []
+    session.required_env = _scan_required_env(files)
     session.status = SessionStatus.READY
     session_store.save(session)
 
-    return AnalyzeResponse(session_id=session.id, status=session.status, stack=stack)
+    return AnalyzeResponse(
+        session_id=session.id,
+        status=session.status,
+        stack=stack,
+        required_env=session.required_env,
+    )
 
 
 @router.post("/architecture", response_model=ArchitectureGraph)

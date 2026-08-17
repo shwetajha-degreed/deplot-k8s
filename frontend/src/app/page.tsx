@@ -96,6 +96,7 @@ export default function HomePage() {
   const [repoUrl, setRepoUrl] = useState("");
   const [githubToken, setGithubToken] = useState("");
   const [runtimeEnvText, setRuntimeEnvText] = useState("");
+  const [requiredEnv, setRequiredEnv] = useState<string[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [deploymentId, setDeploymentId] = useState<string | null>(null);
   const [stack, setStack] = useState<Stack>(null);
@@ -165,6 +166,17 @@ export default function HomePage() {
       const res = await api.analyze(cleaned, demoMode, token);
       setSessionId(res.session_id);
       setStack(res.stack);
+      // Pre-populate the runtime-env textarea with the detected keys so the
+      // wizard's Configure step shows exactly what the app expects. Only
+      // seeds when the user hasn't typed anything yet — never clobbers
+      // work-in-progress.
+      const detected = (res.required_env ?? []).filter(Boolean);
+      setRequiredEnv(detected);
+      setRuntimeEnvText((prev) => {
+        if (prev.trim().length > 0) return prev;
+        if (detected.length === 0) return prev;
+        return detected.map((k) => `${k}=`).join("\n") + "\n";
+      });
       advanceToStep("analyze");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Analyze failed");
@@ -715,6 +727,25 @@ export default function HomePage() {
                     or any per-app secret your app reads with{" "}
                     <code>os.getenv(...)</code> / <code>process.env.*</code>.
                   </p>
+                  {requiredEnv.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-xs text-zinc-400">
+                        Detected in your repo (
+                        <span className="text-zinc-300">{requiredEnv.length}</span> env
+                        var{requiredEnv.length === 1 ? "" : "s"} — pre-filled below):
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {requiredEnv.map((k) => (
+                          <span
+                            key={k}
+                            className="rounded-md border border-white/10 bg-white/5 px-2 py-1 font-mono text-[11px] text-zinc-300"
+                          >
+                            {k}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <textarea
                     className="mt-2 h-40 w-full rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-xs text-white placeholder:text-zinc-600 focus:border-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-40"
                     placeholder={`# GITHUB_TOKEN=ghp_...\n# GITHUB_OWNER=degreed\n# GITHUB_REPO=your-repo\n# OPENAI_API_KEY=sk-...`}

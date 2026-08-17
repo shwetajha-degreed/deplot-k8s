@@ -66,6 +66,19 @@ class GitHubService(BaseService):
             "Gemfile",
             "pom.xml",
             "build.gradle",
+            # For required-env detection:
+            ".env.example",
+            ".env.sample",
+            ".env.template",
+            "settings.py",
+            "config.py",
+            "config.js",
+            "config.ts",
+            "App.js",
+            "App.jsx",
+            "App.tsx",
+            "index.js",
+            "index.ts",
         )
         for path in self._last_tree_paths:
             if any(k in path for k in key_patterns):
