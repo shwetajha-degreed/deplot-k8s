@@ -26,7 +26,12 @@ from .manifests import (
 
 
 # Field manager used for server-side apply; K8s attributes ownership by this name.
-_FIELD_MANAGER = "deplot"
+# Renamed from "deplot" during the Phase 2 rebrand. On the next redeploy of any
+# user app, SSA sees the "deplot" manager owning fields we want to write with
+# the new "degreedops" manager — force=True in _SSA_HEADERS steals the fields
+# back cleanly (same trick that handled the original OpenAPI-Generator manager
+# transition). One-time noise per user app; no user-visible impact.
+_FIELD_MANAGER = "degreedops"
 
 # kubernetes-python's `patch_namespaced_*(..., force=True, field_manager=...)`
 # does NOT send Content-Type: application/apply-patch+yaml by default — it

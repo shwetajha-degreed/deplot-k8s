@@ -847,7 +847,7 @@ async def _execute_deploy_pipeline(
         env_material = json.dumps(filtered_runtime_env, sort_keys=True)
         env_hash = hashlib.sha256(env_material.encode("utf-8")).hexdigest()[:16]
         _annotate_deployment_templates(
-            config.manifests, "deplot.io/runtime-env-hash", env_hash
+            config.manifests, "degreedops.io/runtime-env-hash", env_hash
         )
     if not body.demo_mode and filtered_runtime_env:
         import base64
