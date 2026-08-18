@@ -830,14 +830,26 @@ async def _execute_deploy_pipeline(
     # a change to any KEY=VALUE in the wizard forces a rollout. envFrom
     # is only read at pod start; without this annotation, updating the
     # Secret in place leaves the running pod on stale env values.
+    # Drop keys with empty values BEFORE hashing and applying. The
+    # wizard pre-populates the textarea with every KEY=... from the
+    # detected .env.example so users don't have to type them, but many
+    # users deploy without filling in optional keys. Passing KEY="" to
+    # Pydantic Settings crashes the app on startup (empty string can't
+    # be parsed as int/float — see maestro_forge's FORGE_BUDGET_*).
+    # A missing key falls through to the field's own default; an empty
+    # string does NOT. So we filter here and let the app decide.
+    filtered_runtime_env = {
+        k: v for k, v in (body.runtime_env or {}).items()
+        if v is not None and str(v) != ""
+    }
     if not body.demo_mode:
         import hashlib
-        env_material = json.dumps(body.runtime_env or {}, sort_keys=True)
+        env_material = json.dumps(filtered_runtime_env, sort_keys=True)
         env_hash = hashlib.sha256(env_material.encode("utf-8")).hexdigest()[:16]
         _annotate_deployment_templates(
             config.manifests, "deplot.io/runtime-env-hash", env_hash
         )
-    if not body.demo_mode and body.runtime_env:
+    if not body.demo_mode and filtered_runtime_env:
         import base64
         secret_manifest = {
             "apiVersion": "v1",
@@ -850,7 +862,7 @@ async def _execute_deploy_pipeline(
             "type": "Opaque",
             "data": {
                 k: base64.b64encode(str(v).encode("utf-8")).decode("ascii")
-                for k, v in body.runtime_env.items()
+                for k, v in filtered_runtime_env.items()
             },
         }
         try:
