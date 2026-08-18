@@ -26,7 +26,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: deplot-backend
-          image: dgscucorecr01.azurecr.io/deplot-backend:latest
+          image: dgscucorecr01.azurecr.io/degreedops-backend:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 8000
@@ -124,6 +124,9 @@ spec:
       namespace: internal-gateway
       sectionName: https-degreed-com
   hostnames:
+    - degreedops-api.internal.sbx.degreed.com
+    # Legacy alias kept so already-baked frontends can still resolve
+    # the API; remove after all rolled frontends are on the new URL.
     - deplot-api.internal.sbx.degreed.com
   rules:
     - matches:
