@@ -125,9 +125,6 @@ spec:
       sectionName: https-degreed-com
   hostnames:
     - degreedops-api.internal.sbx.degreed.com
-    # Legacy alias kept so already-baked frontends can still resolve
-    # the API; remove after all rolled frontends are on the new URL.
-    - deplot-api.internal.sbx.degreed.com
   rules:
     - matches:
         - path:

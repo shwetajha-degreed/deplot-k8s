@@ -81,8 +81,6 @@ spec:
       sectionName: https-degreed-com
   hostnames:
     - degreedops.internal.sbx.degreed.com
-    # Legacy alias kept for bookmarked URLs; remove after grace period.
-    - deplot.internal.sbx.degreed.com
   rules:
     - matches:
         - path:
