@@ -48,7 +48,13 @@ class AnalysisService(BaseService):
                 stack.database = "postgresql"
                 signals["database"] = "prisma/postgresql"
 
+        # Python backend detection. Historically we only looked at
+        # requirements.txt, which missed every modern PEP 621 repo
+        # (maestro_forge etc.) where the deps live in pyproject.toml.
+        # Now we scan BOTH — requirements.txt first (still authoritative
+        # for old projects that use it) and pyproject.toml as a fallback.
         req_paths = [k for k in files if k.endswith("requirements.txt")]
+        pyproj_paths = [k for k in files if k.endswith("pyproject.toml")]
         backend_path = "."
         req = files.get("requirements.txt") or ""
         for path in req_paths:
@@ -59,16 +65,50 @@ class AnalysisService(BaseService):
         if not req and req_paths:
             req = files[req_paths[0]]
 
-        if req:
+        pyproj = ""
+        # Prefer a nested pyproject that specifically lives under a
+        # backend/ path (monorepo layout with dedicated backend deps).
+        for path in pyproj_paths:
+            if path.startswith("backend/") or path == "backend/pyproject.toml":
+                backend_path = "backend"
+                pyproj = files[path]
+                break
+        if not pyproj:
+            pyproj = files.get("pyproject.toml") or ""
+        if not pyproj and pyproj_paths:
+            pyproj = files[pyproj_paths[0]]
+
+        # Some monorepos (maestro_forge) put pyproject.toml at the ROOT
+        # but keep backend code under `backend/`. If we see any
+        # backend/*.py path in the tree, treat it as monorepo layout so
+        # Kaniko/Dockerfile lookup uses backend/Dockerfile.
+        if backend_path == "." and pyproj:
+            has_backend_dir = any(
+                k.startswith("backend/") and k.endswith(".py")
+                for k in files
+            )
+            if has_backend_dir:
+                backend_path = "backend"
+
+        backend_manifest = (req + "\n" + pyproj).lower()
+        if req or pyproj:
             stack.has_backend = True
             stack.monorepo_backend_path = backend_path if backend_path != "." else None
-            if "fastapi" in req.lower():
+            if "fastapi" in backend_manifest:
                 stack.backend_framework = "fastapi"
                 stack.backend_runtime = "python@3.12"
                 signals["backend"] = "fastapi"
                 if not stack.framework:
                     stack.framework = "fastapi"
                     stack.runtime = "python@3.12"
+            elif "django" in backend_manifest:
+                stack.backend_framework = "django"
+                stack.backend_runtime = "python@3.12"
+                signals["backend"] = "django"
+            elif "flask" in backend_manifest:
+                stack.backend_framework = "flask"
+                stack.backend_runtime = "python@3.12"
+                signals["backend"] = "flask"
             stack.language = stack.language or "python"
 
         if stack.has_frontend and stack.has_backend:
