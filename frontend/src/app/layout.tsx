@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Deplot AI — Autonomous Platform Engineer",
+  title: "Degreed Ops AI Agents — Autonomous Platform Engineer",
   description: "From GitHub repository to production with AI observability and AIOps",
 };
 

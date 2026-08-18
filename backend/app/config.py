@@ -22,7 +22,7 @@ class Settings(BaseSettings):
         populate_by_name=True,
     )
 
-    app_name: str = "Deplot AI"
+    app_name: str = "Degreed Ops AI Agents"
     app_version: str = "0.1.0"
     debug: bool = False
     api_prefix: str = "/api/v1"

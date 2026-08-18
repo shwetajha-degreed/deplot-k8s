@@ -66,7 +66,7 @@ export function Sidebar({
               </div>
             </div>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight text-white">Deplot AI</h1>
+              <h1 className="text-sm font-semibold tracking-tight text-white">Degreed Ops AI Agents</h1>
               <p className="text-[10px] text-zinc-500">Mission control</p>
             </div>
           </motion.div>

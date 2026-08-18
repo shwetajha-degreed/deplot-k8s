@@ -33,7 +33,7 @@ class GeminiClient:
         model = genai.GenerativeModel(self._settings.gemini_model)
 
         log_text = "\n".join(logs[-80:]) if logs else "No logs available."
-        prompt = f"""You are Deplot AIOps Analyst. Analyze deployment failure logs and respond with JSON only.
+        prompt = f"""You are the Degreed Ops AIOps Analyst. Analyze deployment failure logs and respond with JSON only.
 
 Stack: {stack_summary}
 
@@ -83,7 +83,7 @@ Return JSON with keys:
         genai.configure(api_key=self._settings.gemini_api_key)
         model = genai.GenerativeModel(self._settings.gemini_model)
 
-        prompt = f"""You are Deplot Optimization Advisor. Given computed readiness scores and gaps, return JSON only.
+        prompt = f"""You are the Degreed Ops Optimization Advisor. Given computed readiness scores and gaps, return JSON only.
 
 Stack: {stack_summary}
 Scores (0-10): security={security}, performance={performance}, scalability={scalability}, reliability={reliability}, observability={observability}
@@ -243,7 +243,7 @@ main.py) to derive the correct module path or entrypoint. Do NOT assume
         file_list = sorted(files.keys())[:40]
         snippets = [f"--- {path} ---\n{files[path][:800]}" for path in file_list[:12]]
 
-        prompt = f"""You are Deplot Repository Analyzer. Infer stack from file tree and snippets. Return JSON only.
+        prompt = f"""You are the Degreed Ops Repository Analyzer. Infer stack from file tree and snippets. Return JSON only.
 
 File tree ({len(file_list)} files): {", ".join(file_list)}
 

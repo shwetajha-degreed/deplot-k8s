@@ -27,7 +27,7 @@ class BaseAgent(ABC, Generic[OutputT]):
         path = self._settings.prompts_dir / self.prompt_file
         if path.exists():
             return path.read_text(encoding="utf-8")
-        return f"You are the {self.name} agent for Deplot AI."
+        return f"You are the {self.name} agent for Degreed Ops AI Agents."
 
     @abstractmethod
     async def run(self, context: AgentContext) -> OutputT:
