@@ -1,8 +1,8 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: deplot-config
-  namespace: deplot-system
+  name: degreedops-config
+  namespace: degreedops-system
 data:
   GEMINI_MODEL: "gemini-2.0-flash-exp"
   AKS_CLUSTER_NAME: "DGCUSUSSBXAKS01"
@@ -12,8 +12,8 @@ data:
   GATEWAY_NAME: "internal-gateway"
   GATEWAY_SECTION_NAME: "https-degreed-com"
   BASE_DOMAIN: "internal.sbx.degreed.com"
-  DEPLOT_NAMESPACE: "deplot-system"
-  BUILD_NAMESPACE: "deplot-builds"
+  DEGREEDOPS_NAMESPACE: "degreedops-system"
+  BUILD_NAMESPACE: "degreedops-builds"
   AZURE_WORKLOAD_IDENTITY_CLIENT_ID: "943f4f75-24ce-41a6-b9ea-c1c59e96a5a4"
   AZURE_TENANT_ID: "729a6328-2a2c-4a5e-a619-b292fe7edede"
   PROMPTS_DIR: "/app/prompts"
@@ -25,8 +25,8 @@ data:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: deplot-secrets
-  namespace: deplot-system
+  name: degreedops-secrets
+  namespace: degreedops-system
 type: Opaque
 stringData:
   # Populated by scripts/bootstrap-deplot.sh; do not commit real values.
@@ -36,10 +36,10 @@ stringData:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: deplot-runtime-secrets
-  namespace: deplot-system
+  name: degreedops-runtime-secrets
+  namespace: degreedops-system
 type: Opaque
 stringData:
-  # Rewritten from CNPG's deplot-db-app.uri by the bootstrap script:
+  # Rewritten from CNPG's degreedops-db-app.uri by the bootstrap script:
   # postgres://... -> postgresql+asyncpg://...
   DATABASE_URL: "postgresql+asyncpg://REPLACE_ME"

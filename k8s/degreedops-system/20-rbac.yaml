@@ -1,10 +1,10 @@
 # Cluster-scoped because Deplot provisions per-tenant namespaces on demand and
-# then creates workloads inside them. A namespaced Role in deplot-system alone
+# then creates workloads inside them. A namespaced Role in degreedops-system alone
 # could not create Namespaces or manage objects across those child namespaces.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: deplot-controller
+  name: degreedops-controller
 rules:
   - apiGroups: [""]
     resources:
@@ -41,12 +41,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: deplot-controller
+  name: degreedops-controller
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: deplot-controller
+  name: degreedops-controller
 subjects:
   - kind: ServiceAccount
-    name: deplot
-    namespace: deplot-system
+    name: degreedops
+    namespace: degreedops-system

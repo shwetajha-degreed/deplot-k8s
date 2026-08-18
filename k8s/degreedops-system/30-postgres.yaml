@@ -1,11 +1,11 @@
-# CNPG operator generates Secret "deplot-db-app" with keys username, password,
+# CNPG operator generates Secret "degreedops-db-app" with keys username, password,
 # uri, jdbc-uri, host, port, dbname. The bootstrap script rewrites `uri` from
-# postgres:// -> postgresql+asyncpg:// into `deplot-runtime-secrets`.
+# postgres:// -> postgresql+asyncpg:// into `degreedops-runtime-secrets`.
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
-  name: deplot-db
-  namespace: deplot-system
+  name: degreedops-db
+  namespace: degreedops-system
 spec:
   instances: 1
   storage:

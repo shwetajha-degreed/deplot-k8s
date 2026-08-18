@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: degreedops-builds
+  labels:
+    app.kubernetes.io/name: degreedops-builds
+    app.kubernetes.io/part-of: degreedops
+    # Kaniko needs to pull public images (git, alpine/git, azure-cli).
+    # No inbound traffic; egress allowed via default cluster policy.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kaniko-builder
+  namespace: degreedops-builds
+  labels:
+    azure.workload.identity/use: "true"
+  annotations:
+    # Same Azure User Assigned Managed Identity as the deplot-builds SA.
+    # Federated credential for this (namespace, SA) pair must be added
+    # via `az identity federated-credential create` before Kaniko jobs
+    # can push to ACR from this namespace.
+    azure.workload.identity/client-id: "943f4f75-24ce-41a6-b9ea-c1c59e96a5a4"
+    azure.workload.identity/tenant-id: "729a6328-2a2c-4a5e-a619-b292fe7edede"

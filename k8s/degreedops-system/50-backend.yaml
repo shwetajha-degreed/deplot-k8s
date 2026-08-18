@@ -1,23 +1,23 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: deplot-backend
-  namespace: deplot-system
+  name: degreedops-backend
+  namespace: degreedops-system
   labels:
-    app: deplot-backend
+    app: degreedops-backend
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: deplot-backend
+      app: degreedops-backend
   template:
     metadata:
       labels:
-        app: deplot-backend
+        app: degreedops-backend
         # Required for the workload-identity mutating webhook to inject the token.
         azure.workload.identity/use: "true"
     spec:
-      serviceAccountName: deplot
+      serviceAccountName: degreedops
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
@@ -25,7 +25,7 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: deplot-backend
+        - name: degreedops-backend
           image: dgscucorecr01.azurecr.io/degreedops-backend:latest
           imagePullPolicy: Always
           ports:
@@ -37,37 +37,37 @@ spec:
             - name: AZURE_CLIENT_ID
               valueFrom:
                 configMapKeyRef:
-                  name: deplot-config
+                  name: degreedops-config
                   key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
             - name: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
               valueFrom:
                 configMapKeyRef:
-                  name: deplot-config
+                  name: degreedops-config
                   key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef:
-                  name: deplot-runtime-secrets
+                  name: degreedops-runtime-secrets
                   key: DATABASE_URL
             - name: REDIS_URL
               valueFrom:
                 secretKeyRef:
-                  name: deplot-redis-auth
+                  name: degreedops-redis-auth
                   key: REDIS_URL
             - name: GEMINI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: deplot-secrets
+                  name: degreedops-secrets
                   key: GEMINI_API_KEY
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: deplot-secrets
+                  name: degreedops-secrets
                   key: GITHUB_TOKEN
                   optional: true
           envFrom:
             - configMapRef:
-                name: deplot-config
+                name: degreedops-config
           readinessProbe:
             tcpSocket:
               port: 8000
@@ -100,12 +100,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: deplot-backend
-  namespace: deplot-system
+  name: degreedops-backend
+  namespace: degreedops-system
 spec:
   type: ClusterIP
   selector:
-    app: deplot-backend
+    app: degreedops-backend
   ports:
     - name: http
       port: 8000
@@ -114,8 +114,8 @@ spec:
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
-  name: deplot-backend
-  namespace: deplot-system
+  name: degreedops-backend
+  namespace: degreedops-system
 spec:
   parentRefs:
     - group: gateway.networking.k8s.io
@@ -134,5 +134,5 @@ spec:
             type: PathPrefix
             value: /
       backendRefs:
-        - name: deplot-backend
+        - name: degreedops-backend
           port: 8000

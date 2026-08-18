@@ -1,16 +1,16 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: deplot-system
+  name: degreedops-system
   labels:
-    app.kubernetes.io/name: deplot
-    app.kubernetes.io/part-of: deplot
+    app.kubernetes.io/name: degreedops
+    app.kubernetes.io/part-of: degreedops
 ---
 apiVersion: v1
 kind: LimitRange
 metadata:
-  name: deplot-defaults
-  namespace: deplot-system
+  name: degreedops-defaults
+  namespace: degreedops-system
 spec:
   limits:
     # Backend does synchronous LLM/API calls and can spike; give it headroom.
@@ -25,8 +25,8 @@ spec:
 apiVersion: v1
 kind: ResourceQuota
 metadata:
-  name: deplot-quota
-  namespace: deplot-system
+  name: degreedops-quota
+  namespace: degreedops-system
 spec:
   hard:
     requests.cpu: "8"
@@ -38,8 +38,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: deplot-default
-  namespace: deplot-system
+  name: degreedops-default
+  namespace: degreedops-system
 spec:
   podSelector: {}
   policyTypes: [Ingress, Egress]
@@ -49,7 +49,7 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: envoy-gateway-system
-        # CNPG operator — reaches the deplot-db pod's healthz for status.
+        # CNPG operator — reaches the degreedops-db pod's healthz for status.
         # Without this the operator reports "Instance Status Extraction
         # Error: HTTP communication issue" and the Cluster never reaches
         # "Cluster in healthy state".

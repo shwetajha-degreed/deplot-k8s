@@ -51,7 +51,7 @@ class Settings(BaseSettings):
             "AZURE_WORKLOAD_IDENTITY_CLIENT_ID", "azure_workload_identity_client_id"
         ),
     )
-    build_namespace: str = "deplot-builds"
+    build_namespace: str = "degreedops-builds"
     gateway_namespace: str = "internal-gateway"
     gateway_name: str = "internal-gateway"
     # Actual listener name on the shared internal-gateway:
@@ -62,7 +62,15 @@ class Settings(BaseSettings):
         default="internal.sbx.degreed.com",
         validation_alias=AliasChoices("BASE_DOMAIN", "base_domain"),
     )
-    deplot_namespace: str = "deplot-system"
+    # Kept old name `deplot_namespace` for Python callers; env var is
+    # DEGREEDOPS_NAMESPACE per the ConfigMap in
+    # k8s/degreedops-system/70-config.yaml. Legacy DEPLOT_NAMESPACE
+    # is still accepted for backwards compat with any orphaned
+    # environments.
+    deplot_namespace: str = Field(
+        default="degreedops-system",
+        validation_alias=AliasChoices("DEGREEDOPS_NAMESPACE", "DEPLOT_NAMESPACE"),
+    )
     kubeconfig_path: str = Field(
         default="",
         description="Path to kubeconfig for local dev. Empty = try in-cluster config first.",
