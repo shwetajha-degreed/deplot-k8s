@@ -48,5 +48,5 @@ roleRef:
   name: degreedops-demo-controller
 subjects:
   - kind: ServiceAccount
-    name: degreedops
+    name: degreedops-demo
     namespace: degreedops-demo
