@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: degreedops-demo-backend
+  namespace: degreedops-demo
+  labels:
+    app: degreedops-demo-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: degreedops-demo-backend
+  template:
+    metadata:
+      labels:
+        app: degreedops-demo-backend
+        # Required for the workload-identity mutating webhook to inject the token.
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: degreedops-demo
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: degreedops-demo-backend
+          image: dgscucorecr01.azurecr.io/degreedops-demo-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: KUBECONFIG_PATH
+              value: ""
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: degreedops-demo-config
+                  key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+            - name: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: degreedops-demo-config
+                  key: AZURE_WORKLOAD_IDENTITY_CLIENT_ID
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: degreedops-demo-runtime-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              valueFrom:
+                secretKeyRef:
+                  name: degreedops-demo-redis-auth
+                  key: REDIS_URL
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: degreedops-demo-secrets
+                  key: GEMINI_API_KEY
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: degreedops-demo-secrets
+                  key: GITHUB_TOKEN
+                  optional: true
+          envFrom:
+            - configMapRef:
+                name: degreedops-demo-config
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: degreedops-demo-backend
+  namespace: degreedops-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: degreedops-demo-backend
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: degreedops-demo-backend
+  namespace: degreedops-demo
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: internal-gateway
+      namespace: internal-gateway
+      sectionName: https-degreed-com
+  hostnames:
+    - degreedops-api.internal.sbx.degreed.com
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - name: degreedops-demo-backend
+          port: 8000

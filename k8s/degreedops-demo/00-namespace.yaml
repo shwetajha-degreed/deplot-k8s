@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: degreedops-demo
+  labels:
+    app.kubernetes.io/name: degreedops-demo
+    app.kubernetes.io/part-of: degreedops-demo
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: degreedops-demo-defaults
+  namespace: degreedops-demo
+spec:
+  limits:
+    # Backend does synchronous LLM/API calls and can spike; give it headroom.
+    - type: Container
+      default:
+        cpu: "2"
+        memory: 2Gi
+      defaultRequest:
+        cpu: 500m
+        memory: 512Mi
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: degreedops-demo-quota
+  namespace: degreedops-demo
+spec:
+  hard:
+    requests.cpu: "8"
+    requests.memory: 8Gi
+    limits.cpu: "8"
+    limits.memory: 8Gi
+    requests.storage: 20Gi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: degreedops-demo-default
+  namespace: degreedops-demo
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        # Envoy Gateway — routes external requests to backend/frontend.
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: envoy-gateway-system
+        # CNPG operator — reaches the degreedops-demo-db pod's healthz for status.
+        # Without this the operator reports "Instance Status Extraction
+        # Error: HTTP communication issue" and the Cluster never reaches
+        # "Cluster in healthy state".
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cnpg-system
+        - podSelector: {}
+  egress:
+    - {}

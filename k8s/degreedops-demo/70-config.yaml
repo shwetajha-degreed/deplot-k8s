@@ -1,0 +1,45 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: degreedops-demo-config
+  namespace: degreedops-demo
+data:
+  GEMINI_MODEL: "gemini-2.0-flash-exp"
+  AKS_CLUSTER_NAME: "DGCUSUSSBXAKS01"
+  AKS_RESOURCE_GROUP: "DGCUSUSSBXRG01"
+  ACR_REGISTRY: "dgscucorecr01.azurecr.io"
+  GATEWAY_NAMESPACE: "internal-gateway"
+  GATEWAY_NAME: "internal-gateway"
+  GATEWAY_SECTION_NAME: "https-degreed-com"
+  BASE_DOMAIN: "internal.sbx.degreed.com"
+  DEGREEDOPS_NAMESPACE: "degreedops-demo"
+  BUILD_NAMESPACE: "degreedops-builds"
+  AZURE_WORKLOAD_IDENTITY_CLIENT_ID: "943f4f75-24ce-41a6-b9ea-c1c59e96a5a4"
+  AZURE_TENANT_ID: "729a6328-2a2c-4a5e-a619-b292fe7edede"
+  PROMPTS_DIR: "/app/prompts"
+  DEBUG: "false"
+  DEMO_MODE_ENABLED: "false"
+  # Frontend origin(s) that browsers will call the API from.
+  CORS_ORIGINS: "https://degreedops-demo.internal.sbx.degreed.com,http://localhost:3000"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: degreedops-demo-secrets
+  namespace: degreedops-demo
+type: Opaque
+stringData:
+  # Populated by scripts/bootstrap-deplot.sh; do not commit real values.
+  GEMINI_API_KEY: "REPLACE_ME"
+  GITHUB_TOKEN: ""
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: degreedops-demo-runtime-secrets
+  namespace: degreedops-demo
+type: Opaque
+stringData:
+  # Rewritten from CNPG's degreedops-demo-db-app.uri by the bootstrap script:
+  # postgres://... -> postgresql+asyncpg://...
+  DATABASE_URL: "postgresql+asyncpg://REPLACE_ME"

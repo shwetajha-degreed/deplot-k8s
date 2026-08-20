@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: degreedops-demo-redis-auth
+  namespace: degreedops-demo
+type: Opaque
+stringData:
+  # Populated (rotated) by scripts/bootstrap-deplot.sh on first run.
+  password: "CHANGE_ME"
+  REDIS_URL: "redis://:CHANGE_ME@degreedops-demo-redis:6379/0"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: degreedops-demo-redis-data
+  namespace: degreedops-demo
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: degreedops-demo-redis
+  namespace: degreedops-demo
+spec:
+  type: ClusterIP
+  selector:
+    app: degreedops-demo-redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: degreedops-demo-redis
+  namespace: degreedops-demo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: degreedops-demo-redis
+  template:
+    metadata:
+      labels:
+        app: degreedops-demo-redis
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          args:
+            - /bin/sh
+            - -c
+            - exec redis-server --requirepass "$(cat /etc/redis/password)" --appendonly yes --dir /data
+          ports:
+            - containerPort: 6379
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: auth
+              mountPath: /etc/redis
+              readOnly: true
+          readinessProbe:
+            tcpSocket:
+              port: 6379
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: degreedops-demo-redis-data
+        - name: auth
+          secret:
+            secretName: degreedops-demo-redis-auth
+            items:
+              - key: password
+                path: password

@@ -355,8 +355,6 @@ export function Sidebar({
               </p>
               <div className="mt-4 space-y-2 text-[11px] text-zinc-600">
                 <p>◈ Ship — repos & deploys</p>
-                <p>◉ Watch — health & services</p>
-                <p>⚡ Heal — incidents & MTTR</p>
               </div>
             </div>
           </div>

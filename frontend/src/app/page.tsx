@@ -874,12 +874,7 @@ export default function HomePage() {
                           Retry pipeline
                         </Button>
                       )}
-                      <Button variant="secondary" onClick={() => advanceToStep("operate")}>
-                        Open observability anyway
-                      </Button>
-                      <Button variant="secondary" onClick={() => advanceToStep("incidents")}>
-                        View full AIOps report
-                      </Button>
+                      {/* DEMO BRANCH: Watch/Heal buttons hidden. */}
                     </div>
                   </Card>
                 )}
@@ -928,13 +923,7 @@ export default function HomePage() {
                     )}
                   </Card>
                 )}
-                {!loading && !deployFailed && (
-                  <div className="mt-6">
-                    <Button onClick={() => advanceToStep("operate")} disabled={isPreviewStep}>
-                      Open Observability
-                    </Button>
-                  </div>
-                )}
+                {/* DEMO BRANCH: "Open Observability" navigates to Watch — hidden. */}
               </StepPanel>
             )}
 

@@ -22,7 +22,11 @@ export interface WizardStep {
   icon: string;
 }
 
-export const WIZARD_STEPS: WizardStep[] = [
+// DEMO BRANCH: only the SHIP journey is enabled. Watch (operate) and Heal
+// (incidents/score) are gated out below so they don't render in the sidebar
+// or the wizard, though the step IDs are kept in the type union above so
+// existing page.tsx JSX doesn't need to change. See also WIZARD_PHASES.
+const ALL_WIZARD_STEPS: WizardStep[] = [
   { id: "connect", label: "Connect", description: "GitHub URL or demo repo", layer: "platform", icon: "⎔" },
   { id: "analyze", label: "Analyze", description: "Stack detection", layer: "platform", icon: "◈" },
   { id: "architecture", label: "Architecture", description: "Service topology", layer: "platform", icon: "◎" },
@@ -33,6 +37,10 @@ export const WIZARD_STEPS: WizardStep[] = [
   { id: "incidents", label: "Incidents", description: "AIOps doctor and remediation", layer: "aiops", icon: "⚡" },
   { id: "score", label: "Score", description: "Deployment readiness", layer: "aiops", icon: "★" },
 ];
+
+export const WIZARD_STEPS: WizardStep[] = ALL_WIZARD_STEPS.filter(
+  (s) => s.layer === "platform",
+);
 
 export const LAYER_LABELS: Record<WizardLayer, string> = {
   platform: "Platform Engineering",
@@ -50,6 +58,8 @@ export interface WizardPhase {
   line: string;
 }
 
+// DEMO BRANCH: only the Ship phase is exposed. Watch and Heal are
+// intentionally omitted from the sidebar and journey nav.
 export const WIZARD_PHASES: WizardPhase[] = [
   {
     layer: "platform",
@@ -59,24 +69,6 @@ export const WIZARD_PHASES: WizardPhase[] = [
     accent: "from-indigo-500 via-violet-500 to-indigo-600",
     ring: "ring-indigo-400/50 shadow-indigo-500/40",
     line: "from-indigo-500 to-violet-500",
-  },
-  {
-    layer: "observability",
-    title: "Watch",
-    tagline: "Metrics, logs, live health",
-    icon: "📡",
-    accent: "from-cyan-400 via-sky-500 to-blue-600",
-    ring: "ring-cyan-400/50 shadow-cyan-500/40",
-    line: "from-violet-500 to-cyan-500",
-  },
-  {
-    layer: "aiops",
-    title: "Heal",
-    tagline: "Detect, diagnose, remediate",
-    icon: "🧠",
-    accent: "from-fuchsia-500 via-purple-500 to-violet-600",
-    ring: "ring-fuchsia-400/50 shadow-fuchsia-500/40",
-    line: "from-cyan-500 to-fuchsia-500",
   },
 ];
 
