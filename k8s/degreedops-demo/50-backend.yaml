@@ -124,7 +124,7 @@ spec:
       namespace: internal-gateway
       sectionName: https-degreed-com
   hostnames:
-    - degreedops-api.internal.sbx.degreed.com
+    - degreedops-demo-api.internal.sbx.degreed.com
   rules:
     - matches:
         - path:
